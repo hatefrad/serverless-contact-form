@@ -1,28 +1,92 @@
-service: contact-form-api
+service: serverless-contact-form
+
+frameworkVersion: '3'
+
+useDotenv: true
 
 custom:
-  secrets: ${file(secrets.json)}
+  secrets: ${file(secrets.json), {}}
+  esbuild:
+    bundle: true
+    minify: true
+    sourcemap: true
+    exclude: ['aws-sdk']
+    target: 'node18'
+    platform: 'node'
+    concurrency: 10
 
 provider:
   name: aws
-  runtime: nodejs8.10
-  stage: ${self:custom.secrets.NODE_ENV}
-  region: ${self:custom.secrets.AWS_REGION}
+  runtime: nodejs20.x
+  stage: ${opt:stage, 'dev'}
+  region: ${env:AWS_REGION, 'us-east-1'}
+  timeout: 30
+  memorySize: 256
+  tracing:
+    lambda: true
   environment:
-    NODE_ENV: ${self:custom.secrets.NODE_ENV}
-    EMAIL: ${self:custom.secrets.EMAIL}
-    DOMAIN: ${self:custom.secrets.DOMAIN}
-  iamRoleStatements:
-    - Effect: "Allow"
-      Action:
-        - "ses:SendEmail"
-      Resource: "*"
+    NODE_ENV: ${self:provider.stage}
+    EMAIL: ${env:EMAIL, self:custom.secrets.EMAIL}
+    DOMAIN: ${env:DOMAIN, self:custom.secrets.DOMAIN}
+    AWS_REGION: ${self:provider.region}
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - ses:SendEmail
+            - ses:SendRawEmail
+          Resource: "*"
+        - Effect: Allow
+          Action:
+            - xray:PutTraceSegments
+            - xray:PutTelemetryRecords
+          Resource: "*"
+  logs:
+    restApi: true
+
+plugins:
+  - serverless-esbuild
+  - serverless-offline
 
 functions:
   send:
-    handler: handler.send
+    handler: src/handler.send
+    description: 'Handles contact form submissions via email'
     events:
       - http:
-          path: email/send
+          path: contact
           method: post
-          cors: true
+          cors:
+            origin: ${env:DOMAIN, self:custom.secrets.DOMAIN, '*'}
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+            allowCredentials: true
+      - http:
+          path: contact
+          method: options
+          cors:
+            origin: ${env:DOMAIN, self:custom.secrets.DOMAIN, '*'}
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+            allowCredentials: true
+
+package:
+  patterns:
+    - '!node_modules/**'
+    - '!src/**'
+    - '!.git/**'
+    - '!.vscode/**'
+    - '!tests/**'
+    - '!*.md'
+    - '!tsconfig.json'
+    - '!.eslintrc.js'
+    - '!prettier.config.js'

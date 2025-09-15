@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contact Form Example</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        input, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+        }
+        
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+        
+        textarea {
+            resize: vertical;
+            min-height: 120px;
+        }
+        
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        
+        button:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+        
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        
+        .contact-message {
+            padding: 12px 16px;
+            margin: 16px 0;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        
+        .contact-message--success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .contact-message--error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</head>
+<body>
+    <h1>Contact Us</h1>
+    <p>Send us a message using the form below.</p>
+    
+    <form id="contact-form">
+        <div class="form-group">
+            <label for="name">Name *</label>
+            <input 
+                type="text" 
+                id="name" 
+                name="name" 
+                required 
+                minlength="2" 
+                maxlength="100"
+                placeholder="Your full name"
+            >
+        </div>
+        
+        <div class="form-group">
+            <label for="email">Email *</label>
+            <input 
+                type="email" 
+                id="email" 
+                name="email" 
+                required
+                placeholder="your.email@example.com"
+            >
+        </div>
+        
+        <div class="form-group">
+            <label for="subject">Subject</label>
+            <input 
+                type="text" 
+                id="subject" 
+                name="subject" 
+                maxlength="200"
+                placeholder="What is this about?"
+            >
+        </div>
+        
+        <div class="form-group">
+            <label for="message">Message *</label>
+            <textarea 
+                id="message" 
+                name="message" 
+                required 
+                minlength="10" 
+                maxlength="5000"
+                placeholder="Your message here..."
+            ></textarea>
+        </div>
+        
+        <button type="submit">Send Message</button>
+    </form>
+    
+    <script>
+        // Replace with your actual API endpoint
+        const API_ENDPOINT = 'https://your-api-gateway-url.execute-api.us-east-1.amazonaws.com/dev/contact';
+        
+        class ContactForm {
+            constructor(apiEndpoint) {
+                this.apiEndpoint = apiEndpoint;
+                this.form = document.getElementById('contact-form');
+                this.init();
+            }
+            
+            init() {
+                if (this.form) {
+                    this.form.addEventListener('submit', this.handleSubmit.bind(this));
+                }
+            }
+            
+            async handleSubmit(event) {
+                event.preventDefault();
+                
+                const formData = new FormData(this.form);
+                const data = {
+                    name: formData.get('name'),
+                    email: formData.get('email'),
+                    content: formData.get('message'),
+                    subject: formData.get('subject') || 'Website Contact'
+                };
+                
+                try {
+                    this.setLoadingState(true);
+                    const response = await this.submitForm(data);
+                    
+                    if (response.success) {
+                        this.showMessage('success', 'Thank you! Your message has been sent.');
+                        this.form.reset();
+                    } else {
+                        this.showMessage('error', response.error || 'Failed to send message.');
+                    }
+                } catch (error) {
+                    console.error('Form submission error:', error);
+                    this.showMessage('error', 'Network error. Please try again.');
+                } finally {
+                    this.setLoadingState(false);
+                }
+            }
+            
+            async submitForm(data) {
+                const response = await fetch(this.apiEndpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const responseData = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(responseData.error || `HTTP ${response.status}`);
+                }
+                
+                return responseData;
+            }
+            
+            setLoadingState(isLoading) {
+                const submitButton = this.form.querySelector('button[type="submit"]');
+                if (submitButton) {
+                    submitButton.disabled = isLoading;
+                    submitButton.textContent = isLoading ? 'Sending...' : 'Send Message';
+                }
+            }
+            
+            showMessage(type, message) {
+                // Remove existing messages
+                const existingMessages = document.querySelectorAll('.contact-message');
+                existingMessages.forEach(msg => msg.remove());
+                
+                // Create new message
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `contact-message contact-message--${type}`;
+                messageDiv.textContent = message;
+                
+                // Insert message after form
+                this.form.parentNode.insertBefore(messageDiv, this.form.nextSibling);
+                
+                // Auto-remove success messages after 5 seconds
+                if (type === 'success') {
+                    setTimeout(() => {
+                        if (messageDiv.parentNode) {
+                            messageDiv.remove();
+                        }
+                    }, 5000);
+                }
+            }
+        }
+        
+        // Initialize the contact form
+        document.addEventListener('DOMContentLoaded', () => {
+            new ContactForm(API_ENDPOINT);
+        });
+    </script>
+</body>
+</html>
