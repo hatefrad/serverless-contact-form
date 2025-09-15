@@ -7,18 +7,19 @@ A modern, secure, and scalable contact form API built with TypeScript, AWS Lambd
 - **TypeScript**: Full type safety and modern JavaScript features
 - **AWS Lambda**: Serverless architecture for cost-effective scaling
 - **AWS SES**: Reliable email delivery service
-- **Input Validation**: Comprehensive validation using Joi
+- **Input Validation**: Comprehensive validation using Zod
 - **Security**: Rate limiting, input sanitization, and XSS protection
 - **Error Handling**: Structured error responses with proper HTTP status codes
 - **CORS Support**: Configurable cross-origin resource sharing
 - **Modern AWS SDK**: Uses AWS SDK v3 for better performance
+- **Testing Framework**: Comprehensive test suite with Vitest
 - **Development Tools**: ESLint, Prettier, and TypeScript tooling
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-- Node.js 18+ 
+- Node.js 20+ (LTS recommended)
 - AWS CLI configured with appropriate permissions
 - An AWS account with SES access
 
@@ -83,7 +84,7 @@ Sends a contact form email via AWS SES.
 }
 ```
 
-### Request Validation
+### Request Validation (Zod Schema)
 
 - **name**: 2-100 characters, letters, spaces, hyphens, apostrophes, and periods only
 - **email**: Valid email address format
@@ -122,13 +123,14 @@ Sends a contact form email via AWS SES.
 ## 🔒 Security Features
 
 ### Rate Limiting
-- 5 requests per minute per IP address
+- 5 requests per minute per IP address (in-memory, for demo/testing)
 - Configurable limits in the code
+- For production, use Redis or DynamoDB for distributed rate limiting
 
-### Input Sanitization
+### Input Sanitization & Security
 - HTML entity encoding for special characters
 - XSS prevention
-- Suspicious content detection
+- Suspicious content detection (script tags, JS URIs, event handlers, etc.)
 
 ### CORS Protection
 - Configurable allowed origins
@@ -136,7 +138,7 @@ Sends a contact form email via AWS SES.
 - Credential support
 
 ### Validation
-- Comprehensive input validation with Joi
+- Comprehensive input validation with Zod
 - Email format validation
 - Content length limits
 - Character set restrictions
@@ -162,11 +164,13 @@ npm run lint          # Run ESLint
 npm run lint:fix      # Fix ESLint issues
 npm run format        # Format with Prettier
 npm run type-check    # TypeScript type checking
-npm run validate      # Run all checks
+npm run validate      # Run all checks (type-check, lint, test)
 
 # Testing
-npm test              # Run tests
+npm test              # Run all tests (Vitest)
 npm run test:watch    # Run tests in watch mode
+npm run test:ui       # Run tests with UI
+npm run test:coverage # Run tests with coverage
 
 # Cleanup
 npm run clean         # Remove build files
@@ -177,17 +181,18 @@ npm run remove        # Remove AWS deployment
 
 ```
 ├── src/
-│   ├── handler.ts      # Main Lambda handler
-│   ├── types.ts        # TypeScript interfaces
-│   ├── validation.ts   # Input validation with Joi
+│   ├── handler.ts      # Main Lambda handler (with runtime env vars)
+│   ├── types.ts        # TypeScript types and interfaces
+│   ├── validation.ts   # Input validation with Zod
 │   ├── errors.ts       # Custom error classes
-│   └── security.ts     # Security utilities
+│   └── security.ts     # Security utilities (rate limiting, sanitization)
 ├── examples/           # Usage examples
-├── tests/             # Test files
-├── serverless.yml     # Serverless Framework config
-├── tsconfig.json      # TypeScript config
-├── package.json       # Dependencies and scripts
-└── secrets.json       # Environment variables (gitignored)
+├── tests/              # Test files (Vitest)
+├── dist/               # Compiled JavaScript output
+├── serverless.yml      # Serverless Framework config
+├── tsconfig.json       # TypeScript config
+├── package.json        # Dependencies and scripts
+└── secrets.json        # Environment variables (gitignored)
 ```
 
 ## 🔧 Configuration
@@ -199,6 +204,8 @@ Configure these in `secrets.json` or as environment variables:
 - `EMAIL`: Your verified SES email address (required)
 - `DOMAIN`: Allowed origin domain (default: `*`)
 - `AWS_REGION`: AWS region for SES (default: `us-east-1`)
+
+> **Note:** Environment variables are now read at runtime for better testability and flexibility.
 
 ### Serverless Configuration
 
@@ -290,6 +297,30 @@ export default function ContactForm() {
   );
 }
 ```
+
+## 🧪 Testing
+
+The project includes comprehensive test coverage with Vitest:
+
+### Test Suites
+- **Handler Tests**: Lambda function integration tests with mocked AWS services
+- **Validation Tests**: Zod schema validation testing
+- **Security Tests**: Rate limiting, input sanitization, and suspicious content detection
+- **Error Tests**: Custom error class testing
+
+### Running Tests
+```bash
+npm test              # Run all tests
+npm run test:watch    # Watch mode for development
+npm run test:ui       # Interactive test UI
+npm run test:coverage # Generate coverage reports
+```
+
+### Test Features
+- Mocked AWS SES client for isolated testing
+- Environment variable handling for test isolation
+- Rate limit state reset between tests
+- Comprehensive edge case coverage
 
 ## 📊 Monitoring & Logging
 
