@@ -1,6 +1,9 @@
 # Serverless Contact Form API
 
-A modern, secure, and scalable contact form API built with TypeScript, AWS Lambda, and AWS SES. This serverless solution provides a robust backend for handling contact form submissions with comprehensive validation, security features, and error handling.
+A modern, secure, and scalable contact form API built with TypeScript, AWS
+Lambda, and AWS SES. This serverless solution provides a robust backend for
+handling contact form submissions with comprehensive validation, security
+features, and error handling.
 
 ## ✨ Features
 
@@ -26,6 +29,7 @@ A modern, secure, and scalable contact form API built with TypeScript, AWS Lambd
 ### Installation
 
 1. **Clone and install dependencies:**
+
    ```bash
    git clone <repository-url>
    cd serverless-contact-form
@@ -37,11 +41,13 @@ A modern, secure, and scalable contact form API built with TypeScript, AWS Lambd
    - If in sandbox mode, verify both sender and recipient emails
 
 3. **Set up environment variables:**
+
    ```bash
    cp secrets.example.json secrets.json
    ```
-   
+
    Update `secrets.json` with your configuration:
+
    ```json
    {
      "EMAIL": "your-verified-email@example.com",
@@ -78,7 +84,7 @@ Sends a contact form email via AWS SES.
 ```json
 {
   "name": "John Doe",
-  "email": "john@example.com", 
+  "email": "john@example.com",
   "content": "Hello, I would like to get in touch...",
   "subject": "Website Contact" // Optional
 }
@@ -86,7 +92,8 @@ Sends a contact form email via AWS SES.
 
 ### Request Validation (Zod Schema)
 
-- **name**: 2-100 characters, letters, spaces, hyphens, apostrophes, and periods only
+- **name**: 2-100 characters, letters, spaces, hyphens, apostrophes, and periods
+  only
 - **email**: Valid email address format
 - **content**: 10-5000 characters
 - **subject**: Optional, max 200 characters
@@ -94,6 +101,7 @@ Sends a contact form email via AWS SES.
 ### Response Format
 
 **Success (200):**
+
 ```json
 {
   "success": true,
@@ -103,6 +111,7 @@ Sends a contact form email via AWS SES.
 ```
 
 **Error (400/500):**
+
 ```json
 {
   "success": false,
@@ -123,21 +132,25 @@ Sends a contact form email via AWS SES.
 ## 🔒 Security Features
 
 ### Rate Limiting
+
 - 5 requests per minute per IP address (in-memory, for demo/testing)
 - Configurable limits in the code
 - For production, use Redis or DynamoDB for distributed rate limiting
 
 ### Input Sanitization & Security
+
 - HTML entity encoding for special characters
 - XSS prevention
 - Suspicious content detection (script tags, JS URIs, event handlers, etc.)
 
 ### CORS Protection
+
 - Configurable allowed origins
 - Proper preflight handling
 - Credential support
 
 ### Validation
+
 - Comprehensive input validation with Zod
 - Email format validation
 - Content length limits
@@ -205,7 +218,8 @@ Configure these in `secrets.json` or as environment variables:
 - `DOMAIN`: Allowed origin domain (default: `*`)
 - `AWS_REGION`: AWS region for SES (default: `us-east-1`)
 
-> **Note:** Environment variables are now read at runtime for better testability and flexibility.
+> **Note:** Environment variables are now read at runtime for better testability
+> and flexibility.
 
 ### Serverless Configuration
 
@@ -234,12 +248,12 @@ async function submitContactForm(formData) {
         name: formData.name,
         email: formData.email,
         content: formData.message,
-        subject: formData.subject || 'Website Contact'
-      })
+        subject: formData.subject || 'Website Contact',
+      }),
     });
 
     const result = await response.json();
-    
+
     if (result.success) {
       console.log('Message sent successfully!');
     } else {
@@ -261,22 +275,22 @@ export default function ContactForm() {
     name: '',
     email: '',
     content: '',
-    subject: ''
+    subject: '',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState('');
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async e => {
     e.preventDefault();
     setIsSubmitting(true);
-    
+
     try {
       const response = await fetch('/api/contact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(formData),
       });
-      
+
       const result = await response.json();
       setMessage(result.success ? 'Message sent!' : result.error);
     } catch (error) {
@@ -303,12 +317,15 @@ export default function ContactForm() {
 The project includes comprehensive test coverage with Vitest:
 
 ### Test Suites
+
 - **Handler Tests**: Lambda function integration tests with mocked AWS services
 - **Validation Tests**: Zod schema validation testing
-- **Security Tests**: Rate limiting, input sanitization, and suspicious content detection
+- **Security Tests**: Rate limiting, input sanitization, and suspicious content
+  detection
 - **Error Tests**: Custom error class testing
 
 ### Running Tests
+
 ```bash
 npm test              # Run all tests
 npm run test:watch    # Watch mode for development
@@ -317,6 +334,7 @@ npm run test:coverage # Generate coverage reports
 ```
 
 ### Test Features
+
 - Mocked AWS SES client for isolated testing
 - Environment variable handling for test isolation
 - Rate limit state reset between tests
@@ -325,11 +343,13 @@ npm run test:coverage # Generate coverage reports
 ## 📊 Monitoring & Logging
 
 ### CloudWatch Logs
+
 - All requests are logged with timestamps
 - Error details and stack traces
 - Performance metrics
 
 ### AWS X-Ray Tracing
+
 - Request tracing enabled
 - Performance monitoring
 - Service dependency mapping
