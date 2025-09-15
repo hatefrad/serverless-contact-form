@@ -7,7 +7,7 @@ export class ContactFormError extends Error {
     this.name = 'ContactFormError';
     this.statusCode = statusCode;
     this.isOperational = isOperational;
-    
+
     // Maintains proper stack trace for where error was thrown (Node.js specific)
     if ('captureStackTrace' in Error) {
       (Error as any).captureStackTrace(this, ContactFormError);

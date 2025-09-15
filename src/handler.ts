@@ -3,37 +3,44 @@ import { SESClient, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/cli
 import { ContactFormRequest, ContactFormResponse, ErrorResponse } from './types';
 import { validateContactForm } from './validation';
 import { ContactFormError, ValidationError, EmailServiceError } from './errors';
-import { checkRateLimit, detectSuspiciousActivity, validateOrigin, sanitizeInput } from './security';
+import {
+  checkRateLimit,
+  detectSuspiciousActivity,
+  validateOrigin,
+  sanitizeInput,
+} from './security';
 
-// Environment variables
-const EMAIL = process.env.EMAIL;
-const DOMAIN = process.env.DOMAIN || '*';
-const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
+// Get environment variables (read at runtime for testing flexibility)
+const getEnvVars = () => ({
+  EMAIL: process.env.EMAIL,
+  DOMAIN: process.env.DOMAIN || '*',
+  AWS_REGION: process.env.AWS_REGION || 'us-east-1',
+});
 
-// Initialize SES client
-const sesClient = new SESClient({ region: AWS_REGION });
-
-// CORS headers
-const corsHeaders = {
-  'Access-Control-Allow-Origin': DOMAIN,
-  'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
+// CORS headers factory
+const getCorsHeaders = (domain: string) => ({
+  'Access-Control-Allow-Origin': domain,
+  'Access-Control-Allow-Headers':
+    'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
   'Access-Control-Allow-Methods': 'POST,OPTIONS',
   'Access-Control-Allow-Credentials': 'true',
-  'Content-Type': 'application/json'
-};
+  'Content-Type': 'application/json',
+});
 
 /**
  * Generates a standardized API response
  */
 function generateResponse<T>(
-  statusCode: number, 
-  payload: T, 
+  statusCode: number,
+  payload: T,
+  domain: string = '*',
   additionalHeaders: Record<string, string> = {}
 ): APIGatewayProxyResult {
+  const corsHeaders = getCorsHeaders(domain);
   return {
     statusCode,
     headers: { ...corsHeaders, ...additionalHeaders },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
   };
 }
 
@@ -41,41 +48,42 @@ function generateResponse<T>(
  * Generates a standardized error response
  */
 function generateErrorResponse(
-  statusCode: number, 
-  error: string, 
+  statusCode: number,
+  error: string,
+  domain: string = '*',
   details?: string
 ): APIGatewayProxyResult {
   const errorResponse: ErrorResponse = {
     success: false,
     error,
-    ...(details && { details })
+    ...(details && { details }),
   };
 
   console.error(`Error ${statusCode}:`, { error, details });
-  
-  return generateResponse(statusCode, errorResponse);
+
+  return generateResponse(statusCode, errorResponse, domain);
 }
 
 /**
  * Creates email parameters for SES
  */
-function createEmailParams(request: ContactFormRequest): SendEmailCommandInput {
-  if (!EMAIL) {
+function createEmailParams(request: ContactFormRequest, email: string): SendEmailCommandInput {
+  if (!email) {
     throw new EmailServiceError('EMAIL environment variable is not configured');
   }
 
   const subject = request.subject || 'New Contact Form Submission';
-  
+
   return {
-    Source: EMAIL,
+    Source: email,
     Destination: {
-      ToAddresses: [EMAIL]
+      ToAddresses: [email],
     },
     ReplyToAddresses: [request.email],
     Message: {
       Subject: {
         Charset: 'UTF-8',
-        Data: subject
+        Data: subject,
       },
       Body: {
         Text: {
@@ -92,7 +100,7 @@ ${request.content}
 
 ---
 This message was sent via the contact form.
-          `.trim()
+          `.trim(),
         },
         Html: {
           Charset: 'UTF-8',
@@ -113,33 +121,34 @@ This message was sent via the contact form.
   <p><em>This message was sent via the contact form.</em></p>
 </body>
 </html>
-          `.trim()
-        }
-      }
-    }
+          `.trim(),
+        },
+      },
+    },
   };
 }
 
 /**
  * Sends email using AWS SES
  */
-async function sendEmail(emailParams: SendEmailCommandInput): Promise<string> {
+async function sendEmail(emailParams: SendEmailCommandInput, awsRegion: string): Promise<string> {
   try {
+    const sesClient = new SESClient({ region: awsRegion });
     const command = new SendEmailCommand(emailParams);
     const result = await sesClient.send(command);
-    
+
     if (!result.MessageId) {
       throw new EmailServiceError('Failed to send email - no message ID received');
     }
-    
+
     return result.MessageId;
   } catch (error) {
     console.error('SES Error:', error);
-    
+
     if (error instanceof Error) {
       throw new EmailServiceError(`Failed to send email: ${error.message}`);
     }
-    
+
     throw new EmailServiceError('Failed to send email due to unknown error');
   }
 }
@@ -159,20 +168,13 @@ function parseRequestBody(body: string | null): ContactFormRequest {
     throw new ValidationError('Invalid JSON in request body');
   }
 
-  const { value, error } = validateContactForm(parsedBody);
-  
-  if (error) {
-    const errorMessage = error.details
-      .map((detail: any) => detail.message)
-      .join(', ');
-    throw new ValidationError(errorMessage);
+  const validation = validateContactForm(parsedBody);
+
+  if (!validation.success) {
+    throw new ValidationError(validation.error);
   }
 
-  if (!value) {
-    throw new ValidationError('Invalid request data');
-  }
-
-  return value;
+  return validation.data;
 }
 
 /**
@@ -185,74 +187,86 @@ export const send = async (
   // Enable callbackWaitsForEmptyEventLoop for better performance
   context.callbackWaitsForEmptyEventLoop = false;
 
+  // Get environment variables at runtime
+  const { EMAIL, DOMAIN, AWS_REGION } = getEnvVars();
+
   // Handle preflight OPTIONS request
   if (event.httpMethod === 'OPTIONS') {
-    return generateResponse(200, { message: 'CORS preflight successful' });
+    return generateResponse(200, { message: 'CORS preflight successful' }, DOMAIN);
   }
 
   // Only allow POST requests
   if (event.httpMethod !== 'POST') {
-    return generateErrorResponse(405, 'Method not allowed', 'Only POST requests are supported');
+    return generateErrorResponse(
+      405,
+      'Method not allowed',
+      DOMAIN,
+      'Only POST requests are supported'
+    );
   }
 
   try {
     // Rate limiting check
     const rateLimitPassed = checkRateLimit(event, { maxRequests: 5, windowMs: 60000 });
     if (!rateLimitPassed) {
-      return generateErrorResponse(429, 'Too many requests', 'Please try again later');
+      return generateErrorResponse(429, 'Too many requests', DOMAIN, 'Please try again later');
     }
 
     // Origin validation
     const origin = event.headers?.origin || event.headers?.Origin;
     if (!validateOrigin(origin, DOMAIN)) {
-      return generateErrorResponse(403, 'Forbidden', 'Invalid origin');
+      return generateErrorResponse(403, 'Forbidden', DOMAIN, 'Invalid origin');
     }
 
     // Parse and validate request
     const contactRequest = parseRequestBody(event.body);
-    
+
     // Security checks
     if (detectSuspiciousActivity(contactRequest.content)) {
-      return generateErrorResponse(400, 'Invalid content', 'Suspicious content detected');
+      return generateErrorResponse(400, 'Invalid content', DOMAIN, 'Suspicious content detected');
     }
 
     // Sanitize inputs
     const sanitizedRequest: ContactFormRequest = {
-      email: contactRequest.email, // Email validation already handled by Joi
+      email: contactRequest.email, // Email validation already handled by Zod
       name: sanitizeInput(contactRequest.name),
       content: sanitizeInput(contactRequest.content),
-      subject: contactRequest.subject ? sanitizeInput(contactRequest.subject) : undefined
+      subject: contactRequest.subject ? sanitizeInput(contactRequest.subject) : undefined,
     };
-    
+
     // Create email parameters
-    const emailParams = createEmailParams(sanitizedRequest);
-    
+    const emailParams = createEmailParams(sanitizedRequest, EMAIL!);
+
     // Send email
-    const messageId = await sendEmail(emailParams);
-    
+    const messageId = await sendEmail(emailParams, AWS_REGION!);
+
     // Success response
     const response: ContactFormResponse = {
       success: true,
       message: 'Your message has been sent successfully!',
-      messageId
+      messageId,
     };
-    
+
     console.log('Contact form submitted successfully:', {
       messageId,
       email: sanitizedRequest.email,
       name: sanitizedRequest.name,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
-    
-    return generateResponse(200, response);
-    
+
+    return generateResponse(200, response, DOMAIN);
   } catch (error) {
     if (error instanceof ContactFormError) {
-      return generateErrorResponse(error.statusCode, error.message);
+      return generateErrorResponse(error.statusCode, error.message, DOMAIN);
     }
-    
+
     // Handle unexpected errors
     console.error('Unexpected error:', error);
-    return generateErrorResponse(500, 'Internal server error', 'An unexpected error occurred');
+    return generateErrorResponse(
+      500,
+      'Internal server error',
+      DOMAIN,
+      'An unexpected error occurred'
+    );
   }
 };

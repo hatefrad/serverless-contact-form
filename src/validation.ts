@@ -1,51 +1,44 @@
-import Joi from 'joi';
+import { z } from 'zod';
 import { ContactFormRequest } from './types';
 
-export const contactFormSchema = Joi.object<ContactFormRequest>({
-  email: Joi.string()
-    .email({ tlds: { allow: false } })
-    .required()
-    .messages({
-      'string.email': 'Please provide a valid email address',
-      'any.required': 'Email is required'
-    }),
-  
-  name: Joi.string()
-    .min(2)
-    .max(100)
+export const contactFormSchema = z.object({
+  email: z
+    .string({ required_error: 'Email is required' })
     .trim()
-    .pattern(/^[a-zA-Z\s\-'\.]+$/)
-    .required()
-    .messages({
-      'string.min': 'Name must be at least 2 characters long',
-      'string.max': 'Name cannot exceed 100 characters',
-      'string.pattern.base': 'Name can only contain letters, spaces, hyphens, apostrophes, and periods',
-      'any.required': 'Name is required'
-    }),
-  
-  content: Joi.string()
-    .min(10)
-    .max(5000)
+    .email('Please provide a valid email address'),
+
+  name: z
+    .string({ required_error: 'Name is required' })
     .trim()
-    .required()
-    .messages({
-      'string.min': 'Message must be at least 10 characters long',
-      'string.max': 'Message cannot exceed 5000 characters',
-      'any.required': 'Message content is required'
-    }),
-  
-  subject: Joi.string()
-    .max(200)
+    .min(2, 'Name must be at least 2 characters long')
+    .max(100, 'Name cannot exceed 100 characters')
+    .regex(
+      /^[a-zA-Z\s\-'\.]+$/,
+      'Name can only contain letters, spaces, hyphens, apostrophes, and periods'
+    ),
+
+  content: z
+    .string({ required_error: 'Message content is required' })
     .trim()
-    .optional()
-    .messages({
-      'string.max': 'Subject cannot exceed 200 characters'
-    })
+    .min(10, 'Message must be at least 10 characters long')
+    .max(5000, 'Message cannot exceed 5000 characters'),
+
+  subject: z.string().trim().max(200, 'Subject cannot exceed 200 characters').optional(),
 });
 
-export function validateContactForm(data: unknown): { value: ContactFormRequest; error?: never } | { error: Joi.ValidationError; value?: never } {
-  return contactFormSchema.validate(data, { 
-    abortEarly: false,
-    stripUnknown: true 
-  });
+export type ContactFormSchema = z.infer<typeof contactFormSchema>;
+
+export function validateContactForm(
+  data: unknown
+): { success: true; data: ContactFormRequest } | { success: false; error: string } {
+  try {
+    const result = contactFormSchema.parse(data);
+    return { success: true, data: result as ContactFormRequest };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const errorMessage = error.errors.map(err => err.message).join(', ');
+      return { success: false, error: errorMessage };
+    }
+    return { success: false, error: 'Invalid request data' };
+  }
 }
