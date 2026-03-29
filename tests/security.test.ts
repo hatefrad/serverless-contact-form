@@ -131,6 +131,13 @@ describe('Security Utilities', () => {
       expect(validateOrigin('https://www.example.com', '*.example.com')).toBe(true);
       expect(validateOrigin('https://example.com', '*.example.com')).toBe(true);
       expect(validateOrigin('https://other.com', '*.example.com')).toBe(false);
+      expect(validateOrigin('https://badexample.com', '*.example.com')).toBe(false);
+      expect(validateOrigin('https://example.com.evil.org', '*.example.com')).toBe(false);
+    });
+
+    it('should normalize exact origin with trailing slash', () => {
+      expect(validateOrigin('https://example.com', 'https://example.com/')).toBe(true);
+      expect(validateOrigin('https://example.com/', 'https://example.com')).toBe(true);
     });
 
     it('should allow undefined origin when domain is *', () => {

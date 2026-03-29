@@ -78,13 +78,26 @@ export function validateOrigin(origin: string | undefined, allowedDomain: string
     return true;
   }
 
-  // Support wildcards like *.example.com
-  if (allowedDomain.startsWith('*.')) {
-    const domain = allowedDomain.slice(2);
-    return origin.endsWith(domain) || origin === domain;
+  let originUrl: URL;
+  try {
+    originUrl = new URL(origin);
+  } catch {
+    return false;
   }
 
-  return origin === allowedDomain;
+  // Support wildcards like *.example.com (hostname-only match)
+  if (allowedDomain.startsWith('*.')) {
+    const domain = allowedDomain.slice(2).toLowerCase();
+    const hostname = originUrl.hostname.toLowerCase();
+    return hostname === domain || hostname.endsWith(`.${domain}`);
+  }
+
+  // Normalize exact origin checks to avoid trailing slash mismatches
+  try {
+    return originUrl.origin === new URL(allowedDomain).origin;
+  } catch {
+    return originUrl.origin === allowedDomain.replace(/\/$/, '');
+  }
 }
 
 /**
