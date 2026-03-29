@@ -190,6 +190,10 @@ export const send = async (
   // Get environment variables at runtime
   const { EMAIL, DOMAIN, AWS_REGION } = getEnvVars();
 
+  if (!EMAIL) {
+    return generateErrorResponse(500, 'EMAIL environment variable is not configured', DOMAIN);
+  }
+
   // Handle preflight OPTIONS request
   if (event.httpMethod === 'OPTIONS') {
     return generateResponse(200, { message: 'CORS preflight successful' }, DOMAIN);
@@ -235,10 +239,10 @@ export const send = async (
     };
 
     // Create email parameters
-    const emailParams = createEmailParams(sanitizedRequest, EMAIL!);
+    const emailParams = createEmailParams(sanitizedRequest, EMAIL);
 
     // Send email
-    const messageId = await sendEmail(emailParams, AWS_REGION!);
+    const messageId = await sendEmail(emailParams, AWS_REGION);
 
     // Success response
     const response: ContactFormResponse = {

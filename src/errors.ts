@@ -9,8 +9,14 @@ export class ContactFormError extends Error {
     this.isOperational = isOperational;
 
     // Maintains proper stack trace for where error was thrown (Node.js specific)
-    if ('captureStackTrace' in Error) {
-      (Error as any).captureStackTrace(this, ContactFormError);
+    if (Object.prototype.hasOwnProperty.call(Error, 'captureStackTrace')) {
+      const errorWithCapture = Error as ErrorConstructor & {
+        captureStackTrace?: (
+          targetObject: object,
+          constructorOpt?: (...args: never[]) => unknown
+        ) => void;
+      };
+      errorWithCapture.captureStackTrace?.(this, ContactFormError);
     }
   }
 }

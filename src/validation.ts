@@ -13,7 +13,7 @@ export const contactFormSchema = z.object({
     .min(2, 'Name must be at least 2 characters long')
     .max(100, 'Name cannot exceed 100 characters')
     .regex(
-      /^[a-zA-Z\s\-'\.]+$/,
+      /^[a-zA-Z\s\-'.]+$/,
       'Name can only contain letters, spaces, hyphens, apostrophes, and periods'
     ),
 

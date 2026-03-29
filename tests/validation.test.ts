@@ -8,11 +8,11 @@ describe('Contact Form Validation', () => {
         name: 'John Doe',
         email: 'john@example.com',
         content: 'This is a test message with enough content.',
-        subject: 'Test Subject'
+        subject: 'Test Subject',
       };
 
       const result = validateContactForm(validData);
-      
+
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data).toEqual(validData);
@@ -23,11 +23,11 @@ describe('Contact Form Validation', () => {
       const validData = {
         name: 'Jane Smith',
         email: 'jane@example.com',
-        content: 'This is another test message with sufficient content.'
+        content: 'This is another test message with sufficient content.',
       };
 
       const result = validateContactForm(validData);
-      
+
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.name).toBe('Jane Smith');
@@ -39,12 +39,12 @@ describe('Contact Form Validation', () => {
 
     it('should fail validation with missing required fields', () => {
       const invalidData = {
-        email: 'test@example.com'
+        email: 'test@example.com',
         // Missing name and content
       };
 
       const result = validateContactForm(invalidData);
-      
+
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.error).toContain('Name is required');
@@ -56,11 +56,11 @@ describe('Contact Form Validation', () => {
       const invalidData = {
         name: 'John Doe',
         email: 'invalid-email',
-        content: 'This is a test message with enough content.'
+        content: 'This is a test message with enough content.',
       };
 
       const result = validateContactForm(invalidData);
-      
+
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.error).toContain('Please provide a valid email address');
@@ -71,11 +71,11 @@ describe('Contact Form Validation', () => {
       const invalidData = {
         name: 'J',
         email: 'john@example.com',
-        content: 'This is a test message with enough content.'
+        content: 'This is a test message with enough content.',
       };
 
       const result = validateContactForm(invalidData);
-      
+
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.error).toContain('Name must be at least 2 characters long');
@@ -86,11 +86,11 @@ describe('Contact Form Validation', () => {
       const invalidData = {
         name: 'A'.repeat(101),
         email: 'john@example.com',
-        content: 'This is a test message with enough content.'
+        content: 'This is a test message with enough content.',
       };
 
       const result = validateContactForm(invalidData);
-      
+
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.error).toContain('Name cannot exceed 100 characters');
@@ -101,14 +101,16 @@ describe('Contact Form Validation', () => {
       const invalidData = {
         name: 'John123',
         email: 'john@example.com',
-        content: 'This is a test message with enough content.'
+        content: 'This is a test message with enough content.',
       };
 
       const result = validateContactForm(invalidData);
-      
+
       expect(result.success).toBe(false);
       if (!result.success) {
-        expect(result.error).toContain('Name can only contain letters, spaces, hyphens, apostrophes, and periods');
+        expect(result.error).toContain(
+          'Name can only contain letters, spaces, hyphens, apostrophes, and periods'
+        );
       }
     });
 
@@ -116,11 +118,11 @@ describe('Contact Form Validation', () => {
       const invalidData = {
         name: 'John Doe',
         email: 'john@example.com',
-        content: 'Too short'
+        content: 'Too short',
       };
 
       const result = validateContactForm(invalidData);
-      
+
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.error).toContain('Message must be at least 10 characters long');
@@ -131,11 +133,11 @@ describe('Contact Form Validation', () => {
       const invalidData = {
         name: 'John Doe',
         email: 'john@example.com',
-        content: 'A'.repeat(5001)
+        content: 'A'.repeat(5001),
       };
 
       const result = validateContactForm(invalidData);
-      
+
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.error).toContain('Message cannot exceed 5000 characters');
@@ -147,11 +149,11 @@ describe('Contact Form Validation', () => {
         name: 'John Doe',
         email: 'john@example.com',
         content: 'This is a test message with enough content.',
-        subject: 'A'.repeat(201)
+        subject: 'A'.repeat(201),
       };
 
       const result = validateContactForm(invalidData);
-      
+
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.error).toContain('Subject cannot exceed 200 characters');
@@ -163,11 +165,11 @@ describe('Contact Form Validation', () => {
         name: '  John Doe  ',
         email: '  john@example.com  ',
         content: '  This is a test message with enough content.  ',
-        subject: '  Test Subject  '
+        subject: '  Test Subject  ',
       };
 
       const result = validateContactForm(dataWithWhitespace);
-      
+
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.name).toBe('John Doe');
@@ -181,11 +183,11 @@ describe('Contact Form Validation', () => {
       const validData = {
         name: "Mary O'Connor-Smith Jr.",
         email: 'mary@example.com',
-        content: 'This is a test message with enough content.'
+        content: 'This is a test message with enough content.',
       };
 
       const result = validateContactForm(validData);
-      
+
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.name).toBe("Mary O'Connor-Smith Jr.");
@@ -199,7 +201,7 @@ describe('Contact Form Validation', () => {
         name: 'John Doe',
         email: 'john@example.com',
         content: 'This is a test message with enough content.',
-        subject: 'Test Subject'
+        subject: 'Test Subject',
       };
 
       expect(() => contactFormSchema.parse(validData)).not.toThrow();
@@ -211,7 +213,7 @@ describe('Contact Form Validation', () => {
       const invalidData = {
         name: 'J',
         email: 'invalid-email',
-        content: 'Short'
+        content: 'Short',
       };
 
       expect(() => contactFormSchema.parse(invalidData)).toThrow();

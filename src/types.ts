@@ -17,7 +17,7 @@ export interface ErrorResponse {
   details?: string;
 }
 
-export interface ApiResponse<T = ContactFormResponse | ErrorResponse> {
+export interface ApiResponse {
   statusCode: number;
   headers: Record<string, string>;
   body: string;

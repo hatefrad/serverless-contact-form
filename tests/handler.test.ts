@@ -7,19 +7,19 @@ import { APIGatewayProxyEvent, Context } from 'aws-lambda';
 // Mock AWS SES
 vi.mock('@aws-sdk/client-ses', () => ({
   SESClient: vi.fn(() => ({
-    send: vi.fn()
+    send: vi.fn(),
   })),
-  SendEmailCommand: vi.fn()
+  SendEmailCommand: vi.fn(),
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
-  
+
   // Set up environment variables for tests
   process.env.EMAIL = 'test@example.com';
   process.env.DOMAIN = '*';
   process.env.AWS_REGION = 'us-east-1';
-  
+
   // Reset rate limiting state
   resetRateLimit();
 });
@@ -64,11 +64,11 @@ const createMockEvent = (overrides: Partial<APIGatewayProxyEvent> = {}): APIGate
       user: null,
       userAgent: 'test-agent',
       userArn: null,
-      clientCert: null
-    }
+      clientCert: null,
+    },
   },
   resource: '/contact',
-  ...overrides
+  ...overrides,
 });
 
 // Mock context
@@ -84,14 +84,14 @@ const mockContext: Context = {
   getRemainingTimeInMillis: () => 30000,
   done: vi.fn(),
   fail: vi.fn(),
-  succeed: vi.fn()
+  succeed: ((_messageOrObject: unknown, _object?: unknown) => undefined) as Context['succeed'],
 };
 
 describe('Handler', () => {
   describe('send function', () => {
     it('should handle OPTIONS request (CORS preflight)', async () => {
       const event = createMockEvent({
-        httpMethod: 'OPTIONS'
+        httpMethod: 'OPTIONS',
       });
 
       const result = await send(event, mockContext);
@@ -99,20 +99,20 @@ describe('Handler', () => {
       expect(result.statusCode).toBe(200);
       expect(result.headers).toHaveProperty('Access-Control-Allow-Origin');
       expect(result.headers).toHaveProperty('Access-Control-Allow-Methods');
-      
+
       const body = JSON.parse(result.body);
       expect(body.message).toBe('CORS preflight successful');
     });
 
     it('should reject non-POST requests', async () => {
       const event = createMockEvent({
-        httpMethod: 'GET'
+        httpMethod: 'GET',
       });
 
       const result = await send(event, mockContext);
 
       expect(result.statusCode).toBe(405);
-      
+
       const body = JSON.parse(result.body);
       expect(body.success).toBe(false);
       expect(body.error).toBe('Method not allowed');
@@ -120,42 +120,42 @@ describe('Handler', () => {
 
     it('should successfully send email with valid data', async () => {
       const mockSESResponse = {
-        MessageId: 'test-message-id-123'
+        MessageId: 'test-message-id-123',
       };
 
       // Mock SES client
       const mockSESClient = {
-        send: vi.fn().mockResolvedValue(mockSESResponse)
+        send: vi.fn().mockResolvedValue(mockSESResponse),
       };
-      
-      vi.mocked(SESClient).mockImplementation(() => mockSESClient as any);
+
+      vi.mocked(SESClient).mockImplementation(() => mockSESClient as unknown as SESClient);
 
       const validFormData = {
         name: 'John Doe',
         email: 'john@example.com',
         content: 'This is a test message with sufficient content length.',
-        subject: 'Test Subject'
+        subject: 'Test Subject',
       };
 
       const event = createMockEvent({
         body: JSON.stringify(validFormData),
         headers: {
-          'origin': 'https://example.com'
+          origin: 'https://example.com',
         },
         requestContext: {
           ...createMockEvent().requestContext,
           identity: {
             ...createMockEvent().requestContext.identity,
-            sourceIp: '192.168.1.204' // Unique IP
-          }
-        }
+            sourceIp: '192.168.1.204', // Unique IP
+          },
+        },
       });
 
       const result = await send(event, mockContext);
 
       expect(result.statusCode).toBe(200);
       expect(mockSESClient.send).toHaveBeenCalledTimes(1);
-      
+
       const body = JSON.parse(result.body);
       expect(body.success).toBe(true);
       expect(body.message).toBe('Your message has been sent successfully!');
@@ -166,17 +166,17 @@ describe('Handler', () => {
       const invalidFormData = {
         name: 'J', // Too short
         email: 'invalid-email',
-        content: 'Short' // Too short
+        content: 'Short', // Too short
       };
 
       const event = createMockEvent({
-        body: JSON.stringify(invalidFormData)
+        body: JSON.stringify(invalidFormData),
       });
 
       const result = await send(event, mockContext);
 
       expect(result.statusCode).toBe(400);
-      
+
       const body = JSON.parse(result.body);
       expect(body.success).toBe(false);
       expect(body.error).toContain('Name must be at least 2 characters long');
@@ -184,13 +184,13 @@ describe('Handler', () => {
 
     it('should handle missing request body', async () => {
       const event = createMockEvent({
-        body: null
+        body: null,
       });
 
       const result = await send(event, mockContext);
 
       expect(result.statusCode).toBe(400);
-      
+
       const body = JSON.parse(result.body);
       expect(body.success).toBe(false);
       expect(body.error).toBe('Request body is required');
@@ -198,13 +198,13 @@ describe('Handler', () => {
 
     it('should handle invalid JSON', async () => {
       const event = createMockEvent({
-        body: 'invalid json'
+        body: 'invalid json',
       });
 
       const result = await send(event, mockContext);
 
       expect(result.statusCode).toBe(400);
-      
+
       const body = JSON.parse(result.body);
       expect(body.success).toBe(false);
       expect(body.error).toBe('Invalid JSON in request body');
@@ -212,15 +212,15 @@ describe('Handler', () => {
 
     it('should handle SES errors', async () => {
       const mockSESClient = {
-        send: vi.fn().mockRejectedValue(new Error('SES service unavailable'))
+        send: vi.fn().mockRejectedValue(new Error('SES service unavailable')),
       };
-      
-      vi.mocked(SESClient).mockImplementation(() => mockSESClient as any);
+
+      vi.mocked(SESClient).mockImplementation(() => mockSESClient as unknown as SESClient);
 
       const validFormData = {
         name: 'John Doe',
         email: 'john@example.com',
-        content: 'This is a test message with sufficient content length.'
+        content: 'This is a test message with sufficient content length.',
       };
 
       const event = createMockEvent({
@@ -229,15 +229,15 @@ describe('Handler', () => {
           ...createMockEvent().requestContext,
           identity: {
             ...createMockEvent().requestContext.identity,
-            sourceIp: '192.168.1.205' // Unique IP
-          }
-        }
+            sourceIp: '192.168.1.205', // Unique IP
+          },
+        },
       });
 
       const result = await send(event, mockContext);
 
       expect(result.statusCode).toBe(500);
-      
+
       const body = JSON.parse(result.body);
       expect(body.success).toBe(false);
       expect(body.error).toContain('Failed to send email');
@@ -245,19 +245,19 @@ describe('Handler', () => {
 
     it('should handle rate limiting', async () => {
       const mockSESResponse = {
-        MessageId: 'test-message-id-rate-limit'
+        MessageId: 'test-message-id-rate-limit',
       };
 
       const mockSESClient = {
-        send: vi.fn().mockResolvedValue(mockSESResponse)
+        send: vi.fn().mockResolvedValue(mockSESResponse),
       };
-      
-      vi.mocked(SESClient).mockImplementation(() => mockSESClient as any);
+
+      vi.mocked(SESClient).mockImplementation(() => mockSESClient as unknown as SESClient);
 
       const validFormData = {
         name: 'John Doe',
         email: 'john@example.com',
-        content: 'This is a test message with sufficient content length.'
+        content: 'This is a test message with sufficient content length.',
       };
 
       const event = createMockEvent({
@@ -266,9 +266,9 @@ describe('Handler', () => {
           ...createMockEvent().requestContext,
           identity: {
             ...createMockEvent().requestContext.identity,
-            sourceIp: '192.168.1.100' // Consistent IP for rate limiting
-          }
-        }
+            sourceIp: '192.168.1.100', // Consistent IP for rate limiting
+          },
+        },
       });
 
       // Make 5 requests (should all succeed)
@@ -280,7 +280,7 @@ describe('Handler', () => {
       // 6th request should fail with rate limiting
       const rateLimitedResult = await send(event, mockContext);
       expect(rateLimitedResult.statusCode).toBe(429);
-      
+
       const body = JSON.parse(rateLimitedResult.body);
       expect(body.success).toBe(false);
       expect(body.error).toBe('Too many requests');
@@ -290,7 +290,7 @@ describe('Handler', () => {
       const maliciousFormData = {
         name: 'John Doe',
         email: 'john@example.com',
-        content: 'This message contains <script>alert("xss")</script> malicious code.'
+        content: 'This message contains <script>alert("xss")</script> malicious code.',
       };
 
       const event = createMockEvent({
@@ -299,15 +299,15 @@ describe('Handler', () => {
           ...createMockEvent().requestContext,
           identity: {
             ...createMockEvent().requestContext.identity,
-            sourceIp: '192.168.1.200' // Unique IP
-          }
-        }
+            sourceIp: '192.168.1.200', // Unique IP
+          },
+        },
       });
 
       const result = await send(event, mockContext);
 
       expect(result.statusCode).toBe(400);
-      
+
       const body = JSON.parse(result.body);
       expect(body.success).toBe(false);
       expect(body.error).toBe('Invalid content');
@@ -321,27 +321,27 @@ describe('Handler', () => {
       const validFormData = {
         name: 'John Doe',
         email: 'john@example.com',
-        content: 'This is a test message with sufficient content length.'
+        content: 'This is a test message with sufficient content length.',
       };
 
       const event = createMockEvent({
         body: JSON.stringify(validFormData),
         headers: {
-          'origin': 'https://malicious.com'
+          origin: 'https://malicious.com',
         },
         requestContext: {
           ...createMockEvent().requestContext,
           identity: {
             ...createMockEvent().requestContext.identity,
-            sourceIp: '192.168.1.201' // Unique IP
-          }
-        }
+            sourceIp: '192.168.1.201', // Unique IP
+          },
+        },
       });
 
       const result = await send(event, mockContext);
 
       expect(result.statusCode).toBe(403);
-      
+
       const body = JSON.parse(result.body);
       expect(body.success).toBe(false);
       expect(body.error).toBe('Forbidden');
@@ -352,19 +352,19 @@ describe('Handler', () => {
 
     it('should sanitize inputs', async () => {
       const mockSESResponse = {
-        MessageId: 'test-message-id-456'
+        MessageId: 'test-message-id-456',
       };
 
       const mockSESClient = {
-        send: vi.fn().mockResolvedValue(mockSESResponse)
+        send: vi.fn().mockResolvedValue(mockSESResponse),
       };
-      
-      vi.mocked(SESClient).mockImplementation(() => mockSESClient as any);
+
+      vi.mocked(SESClient).mockImplementation(() => mockSESClient as unknown as SESClient);
 
       const formDataWithHTML = {
         name: 'John Doe', // Valid name without suspicious content
         email: 'john@example.com',
-        content: 'This message has HTML entities like &amp; and quotes.'
+        content: 'This message has HTML entities like &amp; and quotes.',
       };
 
       const event = createMockEvent({
@@ -373,9 +373,9 @@ describe('Handler', () => {
           ...createMockEvent().requestContext,
           identity: {
             ...createMockEvent().requestContext.identity,
-            sourceIp: '192.168.1.202' // Unique IP
-          }
-        }
+            sourceIp: '192.168.1.202', // Unique IP
+          },
+        },
       });
 
       const result = await send(event, mockContext);
@@ -396,7 +396,7 @@ describe('Handler', () => {
       const validFormData = {
         name: 'John Doe',
         email: 'john@example.com',
-        content: 'This is a test message with sufficient content length.'
+        content: 'This is a test message with sufficient content length.',
       };
 
       const event = createMockEvent({
@@ -405,15 +405,15 @@ describe('Handler', () => {
           ...createMockEvent().requestContext,
           identity: {
             ...createMockEvent().requestContext.identity,
-            sourceIp: '192.168.1.203' // Unique IP
-          }
-        }
+            sourceIp: '192.168.1.203', // Unique IP
+          },
+        },
       });
 
       const result = await send(event, mockContext);
 
       expect(result.statusCode).toBe(500);
-      
+
       const body = JSON.parse(result.body);
       expect(body.success).toBe(false);
       expect(body.error).toContain('EMAIL environment variable is not configured');

@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { 
-  checkRateLimit, 
-  detectSuspiciousActivity, 
-  validateOrigin, 
+import {
+  checkRateLimit,
+  detectSuspiciousActivity,
+  validateOrigin,
   sanitizeInput,
-  cleanupRateLimit 
+  cleanupRateLimit,
 } from '../src/security';
 import { APIGatewayProxyEvent } from 'aws-lambda';
 
@@ -12,9 +12,9 @@ import { APIGatewayProxyEvent } from 'aws-lambda';
 const createMockEvent = (sourceIp: string): Partial<APIGatewayProxyEvent> => ({
   requestContext: {
     identity: {
-      sourceIp
-    }
-  } as any
+      sourceIp,
+    },
+  } as unknown as APIGatewayProxyEvent['requestContext'],
 });
 
 describe('Security Utilities', () => {
@@ -25,7 +25,7 @@ describe('Security Utilities', () => {
 
       // First request should be allowed
       expect(checkRateLimit(event, config)).toBe(true);
-      
+
       // Subsequent requests within limit should be allowed
       for (let i = 0; i < 4; i++) {
         expect(checkRateLimit(event, config)).toBe(true);
@@ -55,7 +55,7 @@ describe('Security Utilities', () => {
       expect(checkRateLimit(event, config)).toBe(false);
 
       // Wait for window to expire
-      return new Promise<void>((resolve) => {
+      return new Promise<void>(resolve => {
         setTimeout(() => {
           // Should be allowed again after window reset
           expect(checkRateLimit(event, config)).toBe(true);
@@ -204,10 +204,10 @@ describe('Security Utilities', () => {
       expect(checkRateLimit(event2, config)).toBe(true);
 
       // Wait and clean up with expired window
-      return new Promise<void>((resolve) => {
+      return new Promise<void>(resolve => {
         setTimeout(() => {
           cleanupRateLimit(50); // Clean entries older than 50ms
-          
+
           // Should work as if starting fresh (entries were cleaned)
           expect(checkRateLimit(event1, config)).toBe(true);
           expect(checkRateLimit(event2, config)).toBe(true);

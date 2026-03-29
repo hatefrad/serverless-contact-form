@@ -1,5 +1,6 @@
 // Global test setup for Vitest
 import { vi, beforeEach, afterEach } from 'vitest';
+import { resetRateLimit } from '../src/security';
 
 // Mock console methods to avoid noise in tests
 global.console = {
@@ -17,17 +18,16 @@ const originalEnv = process.env;
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
-  
+
   // Reset environment variables with defaults for each test
-  process.env = { 
+  process.env = {
     ...originalEnv,
     EMAIL: 'test@example.com',
     DOMAIN: '*',
-    AWS_REGION: 'us-east-1'
+    AWS_REGION: 'us-east-1',
   };
-  
+
   // Clear rate limiting storage between tests
-  const { resetRateLimit } = require('../src/security');
   resetRateLimit();
 });
 
