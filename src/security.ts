@@ -70,6 +70,14 @@ export function resetRateLimit(): void {
  * Simple rate limiting based on IP address
  */
 export function checkRateLimit(event: APIGatewayProxyEvent, config: RateLimitConfig): boolean {
+  // In-memory rate limiting only works within a single Lambda instance.
+  // Concurrent invocations on separate instances won't share state.
+  // Set RATE_LIMIT_TABLE to enable distributed rate limiting via DynamoDB.
+  if (process.env.NODE_ENV !== 'test') {
+    console.warn(
+      '[rate-limit] Using in-memory rate limiting — ineffective across Lambda instances. Set RATE_LIMIT_TABLE for distributed enforcement.'
+    );
+  }
   const clientIP = getClientIp(event);
   const now = Date.now();
 
@@ -216,14 +224,14 @@ export function validateOrigin(origin: string | undefined, allowedDomain: string
  */
 export function detectSuspiciousActivity(content: string): boolean {
   const suspiciousPatterns = [
-    /<script[\s\S]*?>[\s\S]*?<\/script>/gi,
-    /javascript:/gi,
-    /on\w+\s*=/gi,
-    /data:text\/html/gi,
-    /vbscript:/gi,
-    /<iframe[\s\S]*?>[\s\S]*?<\/iframe>/gi,
-    /<object[\s\S]*?>[\s\S]*?<\/object>/gi,
-    /<embed[\s\S]*?>[\s\S]*?<\/embed>/gi,
+    /<script[\s\S]*?>[\s\S]*?<\/script>/i,
+    /javascript:/i,
+    /on\w+\s*=/i,
+    /data:text\/html/i,
+    /vbscript:/i,
+    /<iframe[\s\S]*?>[\s\S]*?<\/iframe>/i,
+    /<object[\s\S]*?>[\s\S]*?<\/object>/i,
+    /<embed[\s\S]*?>[\s\S]*?<\/embed>/i,
   ];
 
   return suspiciousPatterns.some(pattern => pattern.test(content));
