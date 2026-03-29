@@ -501,5 +501,31 @@ describe('Handler', () => {
         process.env.EMAIL = originalEmail;
       }
     });
+
+    it('should silently succeed when honeypot field is filled', async () => {
+      const event = createMockEvent({
+        body: JSON.stringify({
+          name: 'Bot Name',
+          email: 'bot@example.com',
+          content: 'This is spam content from a bot.',
+          _honeypot: 'filled by bot',
+        }),
+        requestContext: {
+          ...createMockEvent().requestContext,
+          identity: {
+            ...createMockEvent().requestContext.identity,
+            sourceIp: '10.0.0.1',
+          },
+        },
+      });
+
+      const result = await send(event, mockContext);
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body);
+      expect(body.success).toBe(true);
+      // SES client should never be instantiated
+      expect(vi.mocked(SESClient)).not.toHaveBeenCalled();
+    });
   });
 });

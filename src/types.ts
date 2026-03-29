@@ -3,6 +3,7 @@ export interface ContactFormRequest {
   name: string;
   content: string;
   subject?: string;
+  _honeypot?: string;
 }
 
 export interface ContactFormResponse {

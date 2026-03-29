@@ -50,8 +50,7 @@ provider:
         - Effect: Allow
           Action:
             - dynamodb:UpdateItem
-          # Set RATE_LIMIT_TABLE_ARN to scope this to your specific table
-          Resource: "${env:RATE_LIMIT_TABLE_ARN, self:custom.secrets.RATE_LIMIT_TABLE_ARN, '*'}"
+          Resource: "arn:aws:dynamodb:${self:provider.region}:*:table/${env:RATE_LIMIT_TABLE, self:custom.secrets.RATE_LIMIT_TABLE, 'none'}"
   logs:
     restApi: true
 

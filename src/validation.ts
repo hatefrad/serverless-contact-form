@@ -24,6 +24,7 @@ export const contactFormSchema = z.object({
     .max(5000, 'Message cannot exceed 5000 characters'),
 
   subject: z.string().trim().max(200, 'Subject cannot exceed 200 characters').optional(),
+  _honeypot: z.string().optional(),
 });
 
 export type ContactFormSchema = z.infer<typeof contactFormSchema>;

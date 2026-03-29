@@ -321,6 +321,20 @@ export const send = async (
     // Parse and validate request
     const contactRequest = parseRequestBody(event.body);
 
+    // Honeypot: silently succeed if the hidden field is filled (bot trap)
+    if (contactRequest._honeypot) {
+      return generateResponse(
+        200,
+        {
+          success: true,
+          message: 'Your message has been sent successfully!',
+        } as ContactFormResponse,
+        DOMAIN,
+        {},
+        origin
+      );
+    }
+
     // Security checks
     if (
       detectSuspiciousActivity(contactRequest.content) ||

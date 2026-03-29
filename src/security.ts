@@ -18,6 +18,13 @@ interface DistributedRateLimitConfig extends RateLimitConfig {
 const requestCounts = new Map<string, { count: number; windowStart: number }>();
 const dynamoClients = new Map<string, DynamoDBClient>();
 
+// Warn once at cold start if no distributed rate limiting is configured
+if (process.env.NODE_ENV !== 'test' && !process.env.RATE_LIMIT_TABLE) {
+  console.warn(
+    '[rate-limit] Using in-memory rate limiting — ineffective across Lambda instances. Set RATE_LIMIT_TABLE for distributed enforcement.'
+  );
+}
+
 function getClientIp(event: APIGatewayProxyEvent): string {
   const forwardedFor = event.headers?.['x-forwarded-for'] || event.headers?.['X-Forwarded-For'];
   if (forwardedFor) {
@@ -70,14 +77,6 @@ export function resetRateLimit(): void {
  * Simple rate limiting based on IP address
  */
 export function checkRateLimit(event: APIGatewayProxyEvent, config: RateLimitConfig): boolean {
-  // In-memory rate limiting only works within a single Lambda instance.
-  // Concurrent invocations on separate instances won't share state.
-  // Set RATE_LIMIT_TABLE to enable distributed rate limiting via DynamoDB.
-  if (process.env.NODE_ENV !== 'test') {
-    console.warn(
-      '[rate-limit] Using in-memory rate limiting — ineffective across Lambda instances. Set RATE_LIMIT_TABLE for distributed enforcement.'
-    );
-  }
   const clientIP = getClientIp(event);
   const now = Date.now();
 
