@@ -3,6 +3,10 @@
   "version": "2.0.0",
   "description": "A modern TypeScript serverless contact form API using AWS Lambda and SES",
   "main": "dist/handler.js",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "clean": "rimraf dist",
@@ -21,7 +25,8 @@
     "lint:fix": "eslint src/**/*.ts --fix",
     "format": "prettier --write src/**/*.ts",
     "type-check": "tsc --noEmit",
-    "validate": "npm run type-check && npm run lint && npm run test"
+    "validate": "npm run type-check && npm run lint && npm run test",
+    "prepublishOnly": "npm run validate && npm run build"
   },
   "keywords": [
     "serverless",
@@ -33,6 +38,14 @@
   ],
   "author": "Hatef",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hatefrad/serverless-contact-form.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hatefrad/serverless-contact-form/issues"
+  },
+  "homepage": "https://github.com/hatefrad/serverless-contact-form#readme",
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1019.0",
     "@aws-sdk/client-ses": "^3.987.0",
@@ -58,6 +71,9 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "vitest": {
     "globals": true,
