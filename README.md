@@ -1,125 +1,120 @@
 # Serverless Contact Form API
 
-A modern, secure, and scalable contact form API built with TypeScript, AWS
-Lambda, and AWS SES. This serverless solution provides a robust backend for
-handling contact form submissions with comprehensive validation, security
-features, and error handling.
+Production-ready contact form backend using TypeScript, AWS Lambda, API Gateway,
+and AWS SES.
 
-## ✨ Features
+It is designed for secure public form submission with strong abuse controls,
+predictable behavior under retries, and flexible deployment configuration.
 
-- **TypeScript**: Full type safety and modern JavaScript features
-- **AWS Lambda**: Serverless architecture for cost-effective scaling
-- **AWS SES**: Reliable email delivery service
-- **Input Validation**: Comprehensive validation using Zod
-- **Security**: Rate limiting, input sanitization, and XSS protection
-- **Error Handling**: Structured error responses with proper HTTP status codes
-- **CORS Support**: Configurable cross-origin resource sharing
-- **Modern AWS SDK**: Uses AWS SDK v3 for better performance
-- **Testing Framework**: Comprehensive test suite with Vitest
-- **Development Tools**: ESLint, Prettier, and TypeScript tooling
+## Highlights
 
-## 🚀 Quick Start
+- Strong input validation with Zod
+- SES email delivery with typed AWS SDK v3
+- CORS allow-list support with wildcard subdomains and multi-origin config
+- Rate limiting in-memory by default, optional distributed mode via DynamoDB
+- Idempotency-key deduplication to prevent duplicate sends
+- Optional CAPTCHA verification for high-volume abuse
+- Honeypot trap for low-cost bot filtering
+- Structured error responses and explicit HTTP status handling
+- Comprehensive automated tests with Vitest
+
+## Architecture
+
+- Runtime: Node.js 20 on AWS Lambda
+- Entry point: POST /contact
+- Email transport: AWS SES
+- Optional data stores:
+  - Distributed rate limit table (DynamoDB)
+  - Idempotency table (DynamoDB)
+
+## Quick Start
 
 ### Prerequisites
 
-- Node.js 20+ (LTS recommended)
-- AWS CLI configured with appropriate permissions
-- An AWS account with SES access
+- Node.js 20+
+- AWS CLI configured
+- AWS SES identity verified for sender email
 
-### Installation
+### Install
 
-1. **Clone and install dependencies:**
+```bash
+npm install
+```
 
-   ```bash
-   git clone <repository-url>
-   cd serverless-contact-form
-   npm install
-   ```
+### Configure
 
-2. **Configure AWS SES:**
-   - Verify your email address in AWS SES console
-   - If in sandbox mode, verify both sender and recipient emails
+Create `secrets.json` from your sample and set values similar to:
 
-3. **Set up environment variables:**
+```json
+{
+  "EMAIL": "your-verified-email@example.com",
+  "DOMAIN": "https://yourwebsite.com",
+  "AWS_REGION": "us-east-1",
+  "SES_IDENTITY_ARN": "arn:aws:ses:us-east-1:123456789012:identity/your-verified-email@example.com",
+  "RATE_LIMIT_MAX_REQUESTS": "5",
+  "RATE_LIMIT_WINDOW_MS": "60000",
+  "RATE_LIMIT_TABLE": "contact-form-rate-limit",
+  "RATE_LIMIT_PARTITION_KEY": "id",
+  "RATE_LIMIT_FAIL_OPEN": "true",
+  "IDEMPOTENCY_TTL_MS": "600000",
+  "IDEMPOTENCY_TABLE": "contact-form-idempotency",
+  "IDEMPOTENCY_PARTITION_KEY": "id",
+  "IDEMPOTENCY_FAIL_OPEN": "true",
+  "CAPTCHA_SECRET": "optional-provider-secret",
+  "CAPTCHA_VERIFY_URL": "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+  "CAPTCHA_TOKEN_HEADER": "x-captcha-token",
+  "CAPTCHA_FAIL_OPEN": "false"
+}
+```
 
-   ```bash
-   cp secrets.example.json secrets.json
-   ```
-
-   Update `secrets.json` with your configuration:
-
-   ```json
-   {
-     "EMAIL": "your-verified-email@example.com",
-     "DOMAIN": "https://yourwebsite.com",
-     "AWS_REGION": "us-east-1",
-     "RATE_LIMIT_MAX_REQUESTS": "5",
-     "RATE_LIMIT_WINDOW_MS": "60000",
-     "RATE_LIMIT_TABLE": "contact-form-rate-limit",
-     "RATE_LIMIT_PARTITION_KEY": "id",
-     "RATE_LIMIT_FAIL_OPEN": "true",
-     "IDEMPOTENCY_TTL_MS": "600000",
-     "IDEMPOTENCY_TABLE": "contact-form-idempotency",
-     "CAPTCHA_SECRET": "your-captcha-secret",
-     "SES_IDENTITY_ARN": "arn:aws:ses:us-east-1:123456789012:identity/your-verified-email@example.com"
-   }
-   ```
-
-4. **Deploy to AWS:**
-   ```bash
-   npm run deploy
-   ```
-
-### Local Development
-
-Run the API locally for development:
+### Run Locally
 
 ```bash
 npm run offline
 ```
 
-The API will be available at `http://localhost:3000/dev/contact`
+### Deploy
 
-## 📡 API Documentation
+```bash
+npm run deploy
+```
+
+## API Contract
 
 ### Endpoint
 
-**POST** `/contact`
+- `POST /contact`
 
-Sends a contact form email via AWS SES.
-
-### Request Format
+### Request Body
 
 ```json
 {
   "name": "John Doe",
   "email": "john@example.com",
-  "content": "Hello, I would like to get in touch...",
-  "subject": "Website Contact" // Optional
+  "content": "Hello, I would like to get in touch.",
+  "subject": "Website Contact"
 }
 ```
 
-### Request Validation (Zod Schema)
+### Optional Headers
 
-- **name**: 2-100 characters, letters, spaces, hyphens, apostrophes, and periods
-  only
-- **email**: Valid email address format
-- **content**: 10-5000 characters
-- **subject**: Optional, max 200 characters
+- `Idempotency-Key` or `X-Idempotency-Key`
+- `X-Captcha-Token` (or custom header via `CAPTCHA_TOKEN_HEADER`)
 
-### Response Format
-
-**Success (200):**
+### Success Response
 
 ```json
 {
   "success": true,
   "message": "Your message has been sent successfully!",
-  "messageId": "0123456789abcdef-12345678-1234-1234-1234-123456789012-000000"
+  "messageId": "ses-message-id"
 }
 ```
 
-**Error (400/500):**
+For duplicate idempotency submissions, returns `200` with header
+`Idempotency-Replayed: true` and does not send another email.
+
+### Error Response
 
 ```json
 {
@@ -129,336 +124,152 @@ Sends a contact form email via AWS SES.
 }
 ```
 
-### HTTP Status Codes
+### Status Codes
 
-- `200` - Success
-- `400` - Bad Request (validation errors, suspicious content)
-- `403` - Forbidden (invalid origin)
-- `405` - Method Not Allowed (non-POST requests)
-- `429` - Too Many Requests (rate limiting)
-- `500` - Internal Server Error
+- `200` success (or replay acknowledged)
+- `400` validation/captcha request errors
+- `403` forbidden (origin/captcha verification failure)
+- `405` method not allowed
+- `429` rate limit exceeded
+- `500` internal server error
+- `503` captcha provider unavailable when fail-closed
 
-## 🔒 Security Features
+## Security Model
 
-### Rate Limiting
+### Validation and Sanitization
 
-- 5 requests per minute per IP address (in-memory, for demo/testing)
-- Configurable via environment variables (`RATE_LIMIT_MAX_REQUESTS`,
-  `RATE_LIMIT_WINDOW_MS`)
-- For production, use Redis or DynamoDB for distributed rate limiting
+- Strict Zod schema validation
+- Character and length constraints
+- HTML entity sanitization for user-provided fields
+- Suspicious payload pattern detection
 
-### Idempotency
+### Origin and CORS
 
-- Optional `Idempotency-Key` support prevents duplicate emails from retries and double submits
-- Works in-memory by default, or with DynamoDB when configured
+- Exact origin allow-list support
+- Wildcard subdomains (`*.example.com`)
+- Comma-separated origin configuration
+- Proper preflight validation
 
-### CAPTCHA / Challenge
+### Abuse Controls
 
-- Optional CAPTCHA verification for high-volume abuse scenarios
-- Token header, verification URL, and fail-open/fail-closed behavior are configurable
+- Honeypot field (`_honeypot`) for naive bot detection
+- Rate limiting with configurable window and threshold
+- Optional distributed rate limiting in DynamoDB
+- Optional CAPTCHA challenge verification
 
-### Input Sanitization & Security
+### Duplicate Submission Protection
 
-- HTML entity encoding for special characters
-- XSS prevention
-- Suspicious content detection (script tags, JS URIs, event handlers, etc.)
+- Optional idempotency-key handling
+- Prevents retries/double-click duplicate sends
+- In-memory or DynamoDB-backed dedupe store
 
-### CORS Protection
+## Configuration Reference
 
-- Configurable allowed origins (`DOMAIN`) with support for comma-separated
-  origins
-- Supports wildcard subdomains like `*.example.com`
-- Proper preflight handling
-- Credential support
+Required:
 
-### Validation
+- `EMAIL` verified SES sender
+- `DOMAIN` allowed origin(s) or `*`
+- `AWS_REGION` AWS region
 
-- Comprehensive input validation with Zod
-- Email format validation
-- Content length limits
-- Character set restrictions
+Recommended:
 
-## 🛠️ Development
+- `SES_IDENTITY_ARN` scope SES IAM permissions to identity ARN
 
-### Available Scripts
+Rate limiting:
+
+- `RATE_LIMIT_MAX_REQUESTS` default `5`
+- `RATE_LIMIT_WINDOW_MS` default `60000`
+- `RATE_LIMIT_TABLE` optional DynamoDB table
+- `RATE_LIMIT_PARTITION_KEY` default `id`
+- `RATE_LIMIT_FAIL_OPEN` default `true`
+
+Idempotency:
+
+- `IDEMPOTENCY_TTL_MS` default `600000`
+- `IDEMPOTENCY_TABLE` optional DynamoDB table
+- `IDEMPOTENCY_PARTITION_KEY` default `id`
+- `IDEMPOTENCY_FAIL_OPEN` default `true`
+
+CAPTCHA:
+
+- `CAPTCHA_SECRET` enables verification when set
+- `CAPTCHA_VERIFY_URL` provider endpoint
+- `CAPTCHA_TOKEN_HEADER` default `x-captcha-token`
+- `CAPTCHA_FAIL_OPEN` default `false`
+
+## DynamoDB Table Notes
+
+Distributed rate limit table:
+
+- Partition key: String (`id` by default)
+- TTL attribute: Number `expiresAt` (recommended)
+
+Idempotency table:
+
+- Partition key: String (`id` by default)
+- TTL attribute: Number `expiresAt` (recommended)
+
+## Development
+
+### Scripts
 
 ```bash
-# Build TypeScript
 npm run build
-
-# Deploy to AWS
 npm run deploy
-npm run deploy:dev    # Deploy to dev stage
-npm run deploy:prod   # Deploy to prod stage
-
-# Local development
+npm run deploy:dev
+npm run deploy:prod
 npm run offline
-
-# Code quality
-npm run lint          # Run ESLint
-npm run lint:fix      # Fix ESLint issues
-npm run format        # Format with Prettier
-npm run type-check    # TypeScript type checking
-npm run validate      # Run all checks (type-check, lint, test)
-
-# Testing
-npm test              # Run all tests (Vitest)
-npm run test:watch    # Run tests in watch mode
-npm run test:ui       # Run tests with UI
-npm run test:coverage # Run tests with coverage
-
-# Cleanup
-npm run clean         # Remove build files
-npm run remove        # Remove AWS deployment
+npm run lint
+npm run lint:fix
+npm run format
+npm run type-check
+npm run validate
+npm test
+npm run test:watch
+npm run test:ui
+npm run test:coverage
 ```
 
 ### Project Structure
 
-```
-├── src/
-│   ├── handler.ts      # Main Lambda handler (with runtime env vars)
-│   ├── types.ts        # TypeScript types and interfaces
-│   ├── validation.ts   # Input validation with Zod
-│   ├── errors.ts       # Custom error classes
-│   └── security.ts     # Security utilities (rate limiting, sanitization)
-├── examples/           # Usage examples
-├── tests/              # Test files (Vitest)
-├── dist/               # Compiled JavaScript output
-├── serverless.yml      # Serverless Framework config
-├── tsconfig.json       # TypeScript config
-├── package.json        # Dependencies and scripts
-└── secrets.json        # Environment variables (gitignored)
+```text
+src/
+  handler.ts
+  security.ts
+  validation.ts
+  errors.ts
+  types.ts
+tests/
+examples/
+serverless.yml
 ```
 
-## 🔧 Configuration
+## Testing
 
-### Environment Variables
+The test suite covers:
 
-Configure these in `secrets.json` or as environment variables:
+- Handler behavior and response contracts
+- Validation rules and edge cases
+- Security utilities (origin checks, rate limiting, sanitizer)
+- Distributed rate limit behavior and fail-open/fail-closed semantics
+- Idempotency and CAPTCHA flow behavior
 
-- `EMAIL`: Your verified SES email address (required)
-- `DOMAIN`: Allowed origin(s), supports `*`, exact origins, wildcards
-  (`*.example.com`), and comma-separated lists
-- `AWS_REGION`: AWS region for SES (default: `us-east-1`)
-- `RATE_LIMIT_MAX_REQUESTS`: Max requests per IP within a window (default: `5`)
-- `RATE_LIMIT_WINDOW_MS`: Rate-limit window in milliseconds (default: `60000`)
-- `RATE_LIMIT_TABLE`: Optional DynamoDB table name for distributed rate limiting
-- `RATE_LIMIT_PARTITION_KEY`: Partition key name for rate limit records
-  (default: `id`)
-- `RATE_LIMIT_FAIL_OPEN`: If `true`, allows requests when distributed limiter is
-  unavailable (default: `true`)
-- `IDEMPOTENCY_TTL_MS`: TTL for idempotency keys in milliseconds (default:
-  `600000`)
-- `IDEMPOTENCY_TABLE`: Optional DynamoDB table for idempotency keys
-- `IDEMPOTENCY_PARTITION_KEY`: Partition key name for idempotency records
-  (default: `id`)
-- `IDEMPOTENCY_FAIL_OPEN`: If `true`, idempotency backend failures allow
-  requests (default: `true`)
-- `CAPTCHA_SECRET`: Optional CAPTCHA secret; when set, captcha verification is
-  required
-- `CAPTCHA_VERIFY_URL`: CAPTCHA verification endpoint
-- `CAPTCHA_TOKEN_HEADER`: Header name used for the CAPTCHA token (default:
-  `x-captcha-token`)
-- `CAPTCHA_FAIL_OPEN`: If `true`, temporary CAPTCHA provider failures allow
-  requests (default: `false`)
-- `SES_IDENTITY_ARN`: SES identity ARN to scope IAM permissions (recommended)
-
-#### Distributed Rate Limiting (Optional)
-
-If `RATE_LIMIT_TABLE` is set, rate limiting is handled in DynamoDB instead of
-in-memory.
-
-Recommended table setup:
-
-- Partition key: String (`id` by default)
-- TTL attribute: Number (`expiresAt`) enabled in DynamoDB TTL settings
-
-#### Idempotency (Optional)
-
-If `IDEMPOTENCY_TABLE` is set, duplicate-key detection is persisted in
-DynamoDB.
-
-Recommended table setup:
-
-- Partition key: String (`id` by default)
-- TTL attribute: Number (`expiresAt`) enabled in DynamoDB TTL settings
-
-> **Note:** Environment variables are now read at runtime for better testability
-> and flexibility.
-
-### Serverless Configuration
-
-The `serverless.yml` file includes:
-
-- Node.js 20.x runtime
-- Automatic TypeScript compilation with esbuild
-- AWS X-Ray tracing
-- CloudWatch logs
-- IAM permissions for SES
-- CORS configuration
-
-## 🌐 Frontend Integration
-
-### JavaScript/Fetch Example
-
-```javascript
-async function submitContactForm(formData) {
-  try {
-    const response = await fetch('https://your-api-gateway-url/contact', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: formData.name,
-        email: formData.email,
-        content: formData.message,
-        subject: formData.subject || 'Website Contact',
-      }),
-    });
-
-    const result = await response.json();
-
-    if (result.success) {
-      console.log('Message sent successfully!');
-    } else {
-      console.error('Error:', result.error);
-    }
-  } catch (error) {
-    console.error('Network error:', error);
-  }
-}
-```
-
-### React Example
-
-```jsx
-import { useState } from 'react';
-
-export default function ContactForm() {
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    content: '',
-    subject: '',
-  });
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [message, setMessage] = useState('');
-
-  const handleSubmit = async e => {
-    e.preventDefault();
-    setIsSubmitting(true);
-
-    try {
-      const response = await fetch('/api/contact', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      });
-
-      const result = await response.json();
-      setMessage(result.success ? 'Message sent!' : result.error);
-    } catch (error) {
-      setMessage('Failed to send message');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit}>
-      {/* Form fields */}
-      <button type="submit" disabled={isSubmitting}>
-        {isSubmitting ? 'Sending...' : 'Send Message'}
-      </button>
-      {message && <p>{message}</p>}
-    </form>
-  );
-}
-```
-
-## 🧪 Testing
-
-The project includes comprehensive test coverage with Vitest:
-
-### Test Suites
-
-- **Handler Tests**: Lambda function integration tests with mocked AWS services
-- **Validation Tests**: Zod schema validation testing
-- **Security Tests**: Rate limiting, input sanitization, and suspicious content
-  detection
-- **Error Tests**: Custom error class testing
-
-### Running Tests
+Run:
 
 ```bash
-npm test              # Run all tests
-npm run test:watch    # Watch mode for development
-npm run test:ui       # Interactive test UI
-npm run test:coverage # Generate coverage reports
+npm test
 ```
 
-### Test Features
+## Operations and Troubleshooting
 
-- Mocked AWS SES client for isolated testing
-- Environment variable handling for test isolation
-- Rate limit state reset between tests
-- Comprehensive edge case coverage
+Check first:
 
-## 📊 Monitoring & Logging
+- CloudWatch logs for request and error context
+- SES sending status and identity verification
+- CORS origin configuration (`DOMAIN`)
+- CAPTCHA provider health and token header wiring
+- DynamoDB table names, IAM access, and TTL settings
 
-### CloudWatch Logs
+## License
 
-- All requests are logged with timestamps
-- Error details and stack traces
-- Performance metrics
-
-### AWS X-Ray Tracing
-
-- Request tracing enabled
-- Performance monitoring
-- Service dependency mapping
-
-## 🚨 Troubleshooting
-
-### Common Issues
-
-1. **Email not delivered**
-   - Verify SES email addresses
-   - Check SES sending limits
-   - Review CloudWatch logs
-
-2. **CORS errors**
-   - Verify DOMAIN configuration
-   - Check allowed origins in serverless.yml
-
-3. **Rate limiting**
-   - Implement distributed rate limiting for production
-   - Consider using Redis or DynamoDB
-
-4. **Deployment errors**
-   - Ensure AWS credentials are configured
-   - Check IAM permissions
-   - Verify region settings
-
-### Getting Help
-
-- Check CloudWatch logs for detailed error messages
-- Use AWS X-Ray for request tracing
-- Enable debug mode in serverless offline
-
-## 📄 License
-
-MIT License - see LICENSE file for details.
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
-
----
-
-**Happy coding! 🚀**
+MIT
