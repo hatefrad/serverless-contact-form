@@ -104,6 +104,56 @@ describe('Handler', () => {
       expect(body.message).toBe('CORS preflight successful');
     });
 
+    it('should reject OPTIONS preflight from invalid origin when domain is restricted', async () => {
+      const originalDomain = process.env.DOMAIN;
+      process.env.DOMAIN = 'https://example.com';
+
+      const event = createMockEvent({
+        httpMethod: 'OPTIONS',
+        headers: {
+          origin: 'https://malicious.com',
+        },
+      });
+
+      const result = await send(event, mockContext);
+
+      expect(result.statusCode).toBe(403);
+      const body = JSON.parse(result.body);
+      expect(body.error).toBe('Forbidden');
+
+      process.env.DOMAIN = originalDomain;
+    });
+
+    it('should reflect allowed origin for restricted domain CORS responses', async () => {
+      const originalDomain = process.env.DOMAIN;
+      process.env.DOMAIN = 'https://example.com';
+
+      const mockSESClient = {
+        send: vi.fn().mockResolvedValue({ MessageId: 'cors-origin-test-id' }),
+      };
+      vi.mocked(SESClient).mockImplementation(() => mockSESClient as unknown as SESClient);
+
+      const event = createMockEvent({
+        body: JSON.stringify({
+          name: 'John Doe',
+          email: 'john@example.com',
+          content: 'This is a test message with sufficient content length.',
+        }),
+        headers: {
+          origin: 'https://example.com',
+        },
+      });
+
+      const result = await send(event, mockContext);
+
+      expect(result.statusCode).toBe(200);
+      expect(result.headers).toBeDefined();
+      expect(result.headers?.['Access-Control-Allow-Origin']).toBe('https://example.com');
+      expect(result.headers?.['Access-Control-Allow-Credentials']).toBe('true');
+
+      process.env.DOMAIN = originalDomain;
+    });
+
     it('should reject non-POST requests', async () => {
       const event = createMockEvent({
         httpMethod: 'GET',
@@ -300,6 +350,34 @@ describe('Handler', () => {
           identity: {
             ...createMockEvent().requestContext.identity,
             sourceIp: '192.168.1.200', // Unique IP
+          },
+        },
+      });
+
+      const result = await send(event, mockContext);
+
+      expect(result.statusCode).toBe(400);
+
+      const body = JSON.parse(result.body);
+      expect(body.success).toBe(false);
+      expect(body.error).toBe('Invalid content');
+    });
+
+    it('should detect suspicious content in subject', async () => {
+      const maliciousFormData = {
+        name: 'John Doe',
+        email: 'john@example.com',
+        content: 'This is a safe message with enough content length.',
+        subject: 'Hi <script>alert("xss")</script>',
+      };
+
+      const event = createMockEvent({
+        body: JSON.stringify(maliciousFormData),
+        requestContext: {
+          ...createMockEvent().requestContext,
+          identity: {
+            ...createMockEvent().requestContext.identity,
+            sourceIp: '192.168.1.210',
           },
         },
       });

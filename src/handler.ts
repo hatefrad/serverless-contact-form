@@ -15,17 +15,64 @@ const getEnvVars = () => ({
   EMAIL: process.env.EMAIL,
   DOMAIN: process.env.DOMAIN || '*',
   AWS_REGION: process.env.AWS_REGION || 'us-east-1',
+  RATE_LIMIT_MAX_REQUESTS: process.env.RATE_LIMIT_MAX_REQUESTS,
+  RATE_LIMIT_WINDOW_MS: process.env.RATE_LIMIT_WINDOW_MS,
 });
 
+function parsePositiveInt(value: string | undefined, fallback: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return Math.min(Math.floor(parsed), max);
+}
+
+function getRateLimitConfig(maxRequestsEnv: string | undefined, windowMsEnv: string | undefined) {
+  return {
+    maxRequests: parsePositiveInt(maxRequestsEnv, 5, 1000),
+    windowMs: parsePositiveInt(windowMsEnv, 60000, 60 * 60 * 1000),
+  };
+}
+
+function getAllowedOrigins(domain: string): string[] {
+  return domain
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean);
+}
+
+function resolveCorsOrigin(requestOrigin: string | undefined, configuredDomain: string): string {
+  const allowedOrigins = getAllowedOrigins(configuredDomain);
+  if (allowedOrigins.includes('*')) {
+    return '*';
+  }
+
+  if (requestOrigin && validateOrigin(requestOrigin, configuredDomain)) {
+    return requestOrigin;
+  }
+
+  return allowedOrigins[0] || 'null';
+}
+
 // CORS headers factory
-const getCorsHeaders = (domain: string) => ({
-  'Access-Control-Allow-Origin': domain,
-  'Access-Control-Allow-Headers':
-    'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
-  'Access-Control-Allow-Methods': 'POST,OPTIONS',
-  'Access-Control-Allow-Credentials': domain === '*' ? 'false' : 'true',
-  'Content-Type': 'application/json',
-});
+const getCorsHeaders = (domain: string, origin?: string) => {
+  const resolvedOrigin = resolveCorsOrigin(origin, domain);
+
+  return {
+    'Access-Control-Allow-Origin': resolvedOrigin,
+    Vary: resolvedOrigin === '*' ? 'Accept-Encoding' : 'Origin, Accept-Encoding',
+    'Access-Control-Allow-Headers':
+      'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
+    'Access-Control-Allow-Methods': 'POST,OPTIONS',
+    'Access-Control-Allow-Credentials': resolvedOrigin === '*' ? 'false' : 'true',
+    'Cache-Control': 'no-store',
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Content-Type': 'application/json',
+  };
+};
 
 /**
  * Generates a standardized API response
@@ -34,9 +81,10 @@ function generateResponse<T>(
   statusCode: number,
   payload: T,
   domain: string = '*',
-  additionalHeaders: Record<string, string> = {}
+  additionalHeaders: Record<string, string> = {},
+  origin?: string
 ): APIGatewayProxyResult {
-  const corsHeaders = getCorsHeaders(domain);
+  const corsHeaders = getCorsHeaders(domain, origin);
   return {
     statusCode,
     headers: { ...corsHeaders, ...additionalHeaders },
@@ -51,7 +99,8 @@ function generateErrorResponse(
   statusCode: number,
   error: string,
   domain: string = '*',
-  details?: string
+  details?: string,
+  origin?: string
 ): APIGatewayProxyResult {
   const errorResponse: ErrorResponse = {
     success: false,
@@ -61,7 +110,7 @@ function generateErrorResponse(
 
   console.error(`Error ${statusCode}:`, { error, details });
 
-  return generateResponse(statusCode, errorResponse, domain);
+  return generateResponse(statusCode, errorResponse, domain, {}, origin);
 }
 
 /**
@@ -188,15 +237,27 @@ export const send = async (
   context.callbackWaitsForEmptyEventLoop = false;
 
   // Get environment variables at runtime
-  const { EMAIL, DOMAIN, AWS_REGION } = getEnvVars();
+  const { EMAIL, DOMAIN, AWS_REGION, RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_WINDOW_MS } = getEnvVars();
+  const origin = event.headers?.origin || event.headers?.Origin;
+  const rateLimitConfig = getRateLimitConfig(RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_WINDOW_MS);
 
   if (!EMAIL) {
-    return generateErrorResponse(500, 'EMAIL environment variable is not configured', DOMAIN);
+    return generateErrorResponse(
+      500,
+      'EMAIL environment variable is not configured',
+      DOMAIN,
+      undefined,
+      origin
+    );
   }
 
   // Handle preflight OPTIONS request
   if (event.httpMethod === 'OPTIONS') {
-    return generateResponse(200, { message: 'CORS preflight successful' }, DOMAIN);
+    if (!validateOrigin(origin, DOMAIN)) {
+      return generateErrorResponse(403, 'Forbidden', DOMAIN, 'Invalid origin', origin);
+    }
+
+    return generateResponse(200, { message: 'CORS preflight successful' }, DOMAIN, {}, origin);
   }
 
   // Only allow POST requests
@@ -205,29 +266,45 @@ export const send = async (
       405,
       'Method not allowed',
       DOMAIN,
-      'Only POST requests are supported'
+      'Only POST requests are supported',
+      origin
     );
   }
 
   try {
     // Rate limiting check
-    const rateLimitPassed = checkRateLimit(event, { maxRequests: 5, windowMs: 60000 });
+    const rateLimitPassed = checkRateLimit(event, rateLimitConfig);
     if (!rateLimitPassed) {
-      return generateErrorResponse(429, 'Too many requests', DOMAIN, 'Please try again later');
+      return generateErrorResponse(
+        429,
+        'Too many requests',
+        DOMAIN,
+        'Please try again later',
+        origin
+      );
     }
 
     // Origin validation
-    const origin = event.headers?.origin || event.headers?.Origin;
     if (!validateOrigin(origin, DOMAIN)) {
-      return generateErrorResponse(403, 'Forbidden', DOMAIN, 'Invalid origin');
+      return generateErrorResponse(403, 'Forbidden', DOMAIN, 'Invalid origin', origin);
     }
 
     // Parse and validate request
     const contactRequest = parseRequestBody(event.body);
 
     // Security checks
-    if (detectSuspiciousActivity(contactRequest.content)) {
-      return generateErrorResponse(400, 'Invalid content', DOMAIN, 'Suspicious content detected');
+    if (
+      detectSuspiciousActivity(contactRequest.content) ||
+      detectSuspiciousActivity(contactRequest.name) ||
+      (contactRequest.subject && detectSuspiciousActivity(contactRequest.subject))
+    ) {
+      return generateErrorResponse(
+        400,
+        'Invalid content',
+        DOMAIN,
+        'Suspicious content detected',
+        origin
+      );
     }
 
     // Sanitize inputs
@@ -258,10 +335,10 @@ export const send = async (
       timestamp: new Date().toISOString(),
     });
 
-    return generateResponse(200, response, DOMAIN);
+    return generateResponse(200, response, DOMAIN, {}, origin);
   } catch (error) {
     if (error instanceof ContactFormError) {
-      return generateErrorResponse(error.statusCode, error.message, DOMAIN);
+      return generateErrorResponse(error.statusCode, error.message, DOMAIN, undefined, origin);
     }
 
     // Handle unexpected errors
@@ -270,7 +347,8 @@ export const send = async (
       500,
       'Internal server error',
       DOMAIN,
-      'An unexpected error occurred'
+      'An unexpected error occurred',
+      origin
     );
   }
 };

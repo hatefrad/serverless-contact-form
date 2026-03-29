@@ -9,6 +9,36 @@ interface RateLimitConfig {
 // In production, use Redis or DynamoDB for distributed rate limiting
 const requestCounts = new Map<string, { count: number; windowStart: number }>();
 
+function getClientIp(event: APIGatewayProxyEvent): string {
+  const forwardedFor = event.headers?.['x-forwarded-for'] || event.headers?.['X-Forwarded-For'];
+  if (forwardedFor) {
+    const firstIp = forwardedFor.split(',')[0]?.trim();
+    if (firstIp) {
+      return firstIp;
+    }
+  }
+
+  const legacySourceIp = event.requestContext?.identity?.sourceIp;
+  if (legacySourceIp) {
+    return legacySourceIp;
+  }
+
+  const httpSourceIp = (
+    event.requestContext as APIGatewayProxyEvent['requestContext'] & {
+      http?: { sourceIp?: string };
+    }
+  )?.http?.sourceIp;
+
+  return httpSourceIp || 'unknown';
+}
+
+function normalizeAllowedOrigins(allowedDomain: string): string[] {
+  return allowedDomain
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
+}
+
 /**
  * Reset rate limiting storage (for testing purposes)
  */
@@ -20,8 +50,13 @@ export function resetRateLimit(): void {
  * Simple rate limiting based on IP address
  */
 export function checkRateLimit(event: APIGatewayProxyEvent, config: RateLimitConfig): boolean {
-  const clientIP = event.requestContext?.identity?.sourceIp || 'unknown';
+  const clientIP = getClientIp(event);
   const now = Date.now();
+
+  // Opportunistic cleanup keeps memory bounded without a separate scheduler.
+  if (requestCounts.size > 1000 || now % 50 === 0) {
+    cleanupRateLimit(config.windowMs);
+  }
 
   const existing = requestCounts.get(clientIP);
 
@@ -74,8 +109,14 @@ export function sanitizeInput(input: string): string {
  * Validate origin against allowed domains
  */
 export function validateOrigin(origin: string | undefined, allowedDomain: string): boolean {
-  if (!origin || allowedDomain === '*') {
+  const allowedOrigins = normalizeAllowedOrigins(allowedDomain);
+
+  if (allowedOrigins.includes('*')) {
     return true;
+  }
+
+  if (!origin) {
+    return false;
   }
 
   let originUrl: URL;
@@ -85,19 +126,22 @@ export function validateOrigin(origin: string | undefined, allowedDomain: string
     return false;
   }
 
-  // Support wildcards like *.example.com (hostname-only match)
-  if (allowedDomain.startsWith('*.')) {
-    const domain = allowedDomain.slice(2).toLowerCase();
-    const hostname = originUrl.hostname.toLowerCase();
-    return hostname === domain || hostname.endsWith(`.${domain}`);
-  }
+  const hostname = originUrl.hostname.toLowerCase();
 
-  // Normalize exact origin checks to avoid trailing slash mismatches
-  try {
-    return originUrl.origin === new URL(allowedDomain).origin;
-  } catch {
-    return originUrl.origin === allowedDomain.replace(/\/$/, '');
-  }
+  return allowedOrigins.some(allowedOrigin => {
+    // Support wildcards like *.example.com (hostname-only match)
+    if (allowedOrigin.startsWith('*.')) {
+      const domain = allowedOrigin.slice(2).toLowerCase();
+      return hostname === domain || hostname.endsWith(`.${domain}`);
+    }
+
+    // Normalize exact origin checks to avoid trailing slash mismatches
+    try {
+      return originUrl.origin === new URL(allowedOrigin).origin;
+    } catch {
+      return originUrl.origin === allowedOrigin.replace(/\/$/, '');
+    }
+  });
 }
 
 /**

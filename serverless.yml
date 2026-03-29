@@ -29,6 +29,8 @@ provider:
     EMAIL: ${env:EMAIL, self:custom.secrets.EMAIL}
     DOMAIN: ${env:DOMAIN, self:custom.secrets.DOMAIN}
     AWS_REGION: ${self:provider.region}
+    RATE_LIMIT_MAX_REQUESTS: ${env:RATE_LIMIT_MAX_REQUESTS, self:custom.secrets.RATE_LIMIT_MAX_REQUESTS, '5'}
+    RATE_LIMIT_WINDOW_MS: ${env:RATE_LIMIT_WINDOW_MS, self:custom.secrets.RATE_LIMIT_WINDOW_MS, '60000'}
   iam:
     role:
       statements:

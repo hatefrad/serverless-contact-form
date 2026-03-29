@@ -140,12 +140,21 @@ describe('Security Utilities', () => {
       expect(validateOrigin('https://example.com/', 'https://example.com')).toBe(true);
     });
 
+    it('should support comma-separated allowed origins', () => {
+      const allowedOrigins = 'https://example.com,https://app.example.com,*.trusted.dev';
+
+      expect(validateOrigin('https://example.com', allowedOrigins)).toBe(true);
+      expect(validateOrigin('https://app.example.com', allowedOrigins)).toBe(true);
+      expect(validateOrigin('https://api.trusted.dev', allowedOrigins)).toBe(true);
+      expect(validateOrigin('https://evil.com', allowedOrigins)).toBe(false);
+    });
+
     it('should allow undefined origin when domain is *', () => {
       expect(validateOrigin(undefined, '*')).toBe(true);
     });
 
     it('should handle undefined origin with specific domain', () => {
-      expect(validateOrigin(undefined, 'https://example.com')).toBe(true);
+      expect(validateOrigin(undefined, 'https://example.com')).toBe(false);
     });
   });
 

@@ -52,7 +52,9 @@ features, and error handling.
    {
      "EMAIL": "your-verified-email@example.com",
      "DOMAIN": "https://yourwebsite.com",
-     "AWS_REGION": "us-east-1"
+     "AWS_REGION": "us-east-1",
+     "RATE_LIMIT_MAX_REQUESTS": "5",
+     "RATE_LIMIT_WINDOW_MS": "60000"
    }
    ```
 
@@ -134,7 +136,8 @@ Sends a contact form email via AWS SES.
 ### Rate Limiting
 
 - 5 requests per minute per IP address (in-memory, for demo/testing)
-- Configurable limits in the code
+- Configurable via environment variables (`RATE_LIMIT_MAX_REQUESTS`,
+  `RATE_LIMIT_WINDOW_MS`)
 - For production, use Redis or DynamoDB for distributed rate limiting
 
 ### Input Sanitization & Security
@@ -145,7 +148,9 @@ Sends a contact form email via AWS SES.
 
 ### CORS Protection
 
-- Configurable allowed origins
+- Configurable allowed origins (`DOMAIN`) with support for comma-separated
+  origins
+- Supports wildcard subdomains like `*.example.com`
 - Proper preflight handling
 - Credential support
 
@@ -215,8 +220,11 @@ npm run remove        # Remove AWS deployment
 Configure these in `secrets.json` or as environment variables:
 
 - `EMAIL`: Your verified SES email address (required)
-- `DOMAIN`: Allowed origin domain (default: `*`)
+- `DOMAIN`: Allowed origin(s), supports `*`, exact origins, wildcards
+  (`*.example.com`), and comma-separated lists
 - `AWS_REGION`: AWS region for SES (default: `us-east-1`)
+- `RATE_LIMIT_MAX_REQUESTS`: Max requests per IP within a window (default: `5`)
+- `RATE_LIMIT_WINDOW_MS`: Rate-limit window in milliseconds (default: `60000`)
 
 > **Note:** Environment variables are now read at runtime for better testability
 > and flexibility.
