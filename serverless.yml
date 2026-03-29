@@ -34,6 +34,14 @@ provider:
     RATE_LIMIT_TABLE: ${env:RATE_LIMIT_TABLE, self:custom.secrets.RATE_LIMIT_TABLE, ''}
     RATE_LIMIT_PARTITION_KEY: ${env:RATE_LIMIT_PARTITION_KEY, self:custom.secrets.RATE_LIMIT_PARTITION_KEY, 'id'}
     RATE_LIMIT_FAIL_OPEN: ${env:RATE_LIMIT_FAIL_OPEN, self:custom.secrets.RATE_LIMIT_FAIL_OPEN, 'true'}
+    IDEMPOTENCY_TTL_MS: ${env:IDEMPOTENCY_TTL_MS, self:custom.secrets.IDEMPOTENCY_TTL_MS, '600000'}
+    IDEMPOTENCY_TABLE: ${env:IDEMPOTENCY_TABLE, self:custom.secrets.IDEMPOTENCY_TABLE, ''}
+    IDEMPOTENCY_PARTITION_KEY: ${env:IDEMPOTENCY_PARTITION_KEY, self:custom.secrets.IDEMPOTENCY_PARTITION_KEY, 'id'}
+    IDEMPOTENCY_FAIL_OPEN: ${env:IDEMPOTENCY_FAIL_OPEN, self:custom.secrets.IDEMPOTENCY_FAIL_OPEN, 'true'}
+    CAPTCHA_SECRET: ${env:CAPTCHA_SECRET, self:custom.secrets.CAPTCHA_SECRET, ''}
+    CAPTCHA_VERIFY_URL: ${env:CAPTCHA_VERIFY_URL, self:custom.secrets.CAPTCHA_VERIFY_URL, 'https://challenges.cloudflare.com/turnstile/v0/siteverify'}
+    CAPTCHA_FAIL_OPEN: ${env:CAPTCHA_FAIL_OPEN, self:custom.secrets.CAPTCHA_FAIL_OPEN, 'false'}
+    CAPTCHA_TOKEN_HEADER: ${env:CAPTCHA_TOKEN_HEADER, self:custom.secrets.CAPTCHA_TOKEN_HEADER, 'x-captcha-token'}
   iam:
     role:
       statements:
@@ -41,7 +49,7 @@ provider:
           Action:
             - ses:SendEmail
             - ses:SendRawEmail
-          Resource: "*"
+          Resource: ${env:SES_IDENTITY_ARN, self:custom.secrets.SES_IDENTITY_ARN, '*'}
         - Effect: Allow
           Action:
             - xray:PutTraceSegments
@@ -51,6 +59,10 @@ provider:
           Action:
             - dynamodb:UpdateItem
           Resource: "arn:aws:dynamodb:${self:provider.region}:*:table/${env:RATE_LIMIT_TABLE, self:custom.secrets.RATE_LIMIT_TABLE, 'none'}"
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+          Resource: "arn:aws:dynamodb:${self:provider.region}:*:table/${env:IDEMPOTENCY_TABLE, self:custom.secrets.IDEMPOTENCY_TABLE, 'none'}"
   logs:
     restApi: true
 

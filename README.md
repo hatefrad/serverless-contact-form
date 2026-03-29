@@ -57,7 +57,11 @@ features, and error handling.
      "RATE_LIMIT_WINDOW_MS": "60000",
      "RATE_LIMIT_TABLE": "contact-form-rate-limit",
      "RATE_LIMIT_PARTITION_KEY": "id",
-     "RATE_LIMIT_FAIL_OPEN": "true"
+     "RATE_LIMIT_FAIL_OPEN": "true",
+     "IDEMPOTENCY_TTL_MS": "600000",
+     "IDEMPOTENCY_TABLE": "contact-form-idempotency",
+     "CAPTCHA_SECRET": "your-captcha-secret",
+     "SES_IDENTITY_ARN": "arn:aws:ses:us-east-1:123456789012:identity/your-verified-email@example.com"
    }
    ```
 
@@ -142,6 +146,16 @@ Sends a contact form email via AWS SES.
 - Configurable via environment variables (`RATE_LIMIT_MAX_REQUESTS`,
   `RATE_LIMIT_WINDOW_MS`)
 - For production, use Redis or DynamoDB for distributed rate limiting
+
+### Idempotency
+
+- Optional `Idempotency-Key` support prevents duplicate emails from retries and double submits
+- Works in-memory by default, or with DynamoDB when configured
+
+### CAPTCHA / Challenge
+
+- Optional CAPTCHA verification for high-volume abuse scenarios
+- Token header, verification URL, and fail-open/fail-closed behavior are configurable
 
 ### Input Sanitization & Security
 
@@ -233,11 +247,36 @@ Configure these in `secrets.json` or as environment variables:
   (default: `id`)
 - `RATE_LIMIT_FAIL_OPEN`: If `true`, allows requests when distributed limiter is
   unavailable (default: `true`)
+- `IDEMPOTENCY_TTL_MS`: TTL for idempotency keys in milliseconds (default:
+  `600000`)
+- `IDEMPOTENCY_TABLE`: Optional DynamoDB table for idempotency keys
+- `IDEMPOTENCY_PARTITION_KEY`: Partition key name for idempotency records
+  (default: `id`)
+- `IDEMPOTENCY_FAIL_OPEN`: If `true`, idempotency backend failures allow
+  requests (default: `true`)
+- `CAPTCHA_SECRET`: Optional CAPTCHA secret; when set, captcha verification is
+  required
+- `CAPTCHA_VERIFY_URL`: CAPTCHA verification endpoint
+- `CAPTCHA_TOKEN_HEADER`: Header name used for the CAPTCHA token (default:
+  `x-captcha-token`)
+- `CAPTCHA_FAIL_OPEN`: If `true`, temporary CAPTCHA provider failures allow
+  requests (default: `false`)
+- `SES_IDENTITY_ARN`: SES identity ARN to scope IAM permissions (recommended)
 
 #### Distributed Rate Limiting (Optional)
 
 If `RATE_LIMIT_TABLE` is set, rate limiting is handled in DynamoDB instead of
 in-memory.
+
+Recommended table setup:
+
+- Partition key: String (`id` by default)
+- TTL attribute: Number (`expiresAt`) enabled in DynamoDB TTL settings
+
+#### Idempotency (Optional)
+
+If `IDEMPOTENCY_TABLE` is set, duplicate-key detection is persisted in
+DynamoDB.
 
 Recommended table setup:
 

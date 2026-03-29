@@ -13,12 +13,21 @@ vi.mock('@aws-sdk/client-ses', () => ({
 }));
 
 beforeEach(() => {
+  vi.unstubAllGlobals();
   vi.clearAllMocks();
 
   // Set up environment variables for tests
   process.env.EMAIL = 'test@example.com';
   process.env.DOMAIN = '*';
   process.env.AWS_REGION = 'us-east-1';
+  delete process.env.CAPTCHA_SECRET;
+  delete process.env.CAPTCHA_VERIFY_URL;
+  delete process.env.CAPTCHA_FAIL_OPEN;
+  delete process.env.CAPTCHA_TOKEN_HEADER;
+  delete process.env.IDEMPOTENCY_TABLE;
+  delete process.env.IDEMPOTENCY_TTL_MS;
+  delete process.env.IDEMPOTENCY_PARTITION_KEY;
+  delete process.env.IDEMPOTENCY_FAIL_OPEN;
 
   // Reset rate limiting state
   resetRateLimit();
@@ -526,6 +535,116 @@ describe('Handler', () => {
       expect(body.success).toBe(true);
       // SES client should never be instantiated
       expect(vi.mocked(SESClient)).not.toHaveBeenCalled();
+    });
+
+    it('should ignore duplicate submissions when idempotency key is reused', async () => {
+      const mockSESClient = {
+        send: vi.fn().mockResolvedValue({ MessageId: 'idempotency-message-id' }),
+      };
+      vi.mocked(SESClient).mockImplementation(() => mockSESClient as unknown as SESClient);
+
+      const formData = {
+        name: 'John Doe',
+        email: 'john@example.com',
+        content: 'This is a test message with sufficient content length.',
+      };
+
+      const event = createMockEvent({
+        body: JSON.stringify(formData),
+        headers: {
+          'Idempotency-Key': 'abc-123-unique-key',
+        },
+        requestContext: {
+          ...createMockEvent().requestContext,
+          identity: {
+            ...createMockEvent().requestContext.identity,
+            sourceIp: '192.168.1.220',
+          },
+        },
+      });
+
+      const first = await send(event, mockContext);
+      const second = await send(event, mockContext);
+
+      expect(first.statusCode).toBe(200);
+      expect(second.statusCode).toBe(200);
+      expect(second.headers?.['Idempotency-Replayed']).toBe('true');
+      expect(mockSESClient.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('should require captcha token when captcha secret is configured', async () => {
+      process.env.CAPTCHA_SECRET = 'captcha-secret';
+
+      const event = createMockEvent({
+        body: JSON.stringify({
+          name: 'John Doe',
+          email: 'john@example.com',
+          content: 'This is a test message with sufficient content length.',
+        }),
+      });
+
+      const result = await send(event, mockContext);
+
+      expect(result.statusCode).toBe(400);
+      const body = JSON.parse(result.body);
+      expect(body.error).toBe('Captcha required');
+    });
+
+    it('should reject request when captcha verification fails', async () => {
+      process.env.CAPTCHA_SECRET = 'captcha-secret';
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: false }),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const event = createMockEvent({
+        headers: {
+          'x-captcha-token': 'token-value',
+        },
+        body: JSON.stringify({
+          name: 'John Doe',
+          email: 'john@example.com',
+          content: 'This is a test message with sufficient content length.',
+        }),
+      });
+
+      const result = await send(event, mockContext);
+
+      expect(result.statusCode).toBe(403);
+      const body = JSON.parse(result.body);
+      expect(body.error).toBe('Forbidden');
+    });
+
+    it('should proceed when captcha verification succeeds', async () => {
+      process.env.CAPTCHA_SECRET = 'captcha-secret';
+
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true }),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const mockSESClient = {
+        send: vi.fn().mockResolvedValue({ MessageId: 'captcha-ok-message-id' }),
+      };
+      vi.mocked(SESClient).mockImplementation(() => mockSESClient as unknown as SESClient);
+
+      const event = createMockEvent({
+        headers: {
+          'x-captcha-token': 'token-value',
+        },
+        body: JSON.stringify({
+          name: 'John Doe',
+          email: 'john@example.com',
+          content: 'This is a test message with sufficient content length.',
+        }),
+      });
+
+      const result = await send(event, mockContext);
+
+      expect(result.statusCode).toBe(200);
+      expect(mockSESClient.send).toHaveBeenCalledTimes(1);
     });
   });
 });

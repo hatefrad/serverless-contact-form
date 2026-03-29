@@ -1,5 +1,5 @@
 import { APIGatewayProxyEvent } from 'aws-lambda';
-import { DynamoDBClient, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, PutItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 
 interface RateLimitConfig {
   maxRequests: number;
@@ -13,10 +13,19 @@ interface DistributedRateLimitConfig extends RateLimitConfig {
   failOpen: boolean;
 }
 
+interface IdempotencyConfig {
+  ttlMs: number;
+  tableName?: string;
+  region: string;
+  partitionKeyName: string;
+  failOpen: boolean;
+}
+
 // Simple in-memory rate limiting (for demo purposes)
 // In production, use Redis or DynamoDB for distributed rate limiting
 const requestCounts = new Map<string, { count: number; windowStart: number }>();
 const dynamoClients = new Map<string, DynamoDBClient>();
+const idempotencyCache = new Map<string, number>();
 
 // Warn once at cold start if no distributed rate limiting is configured
 if (process.env.NODE_ENV !== 'test' && !process.env.RATE_LIMIT_TABLE) {
@@ -71,6 +80,83 @@ function getDynamoClient(region: string): DynamoDBClient {
  */
 export function resetRateLimit(): void {
   requestCounts.clear();
+  idempotencyCache.clear();
+}
+
+function cleanupIdempotencyCache(now: number): void {
+  for (const [key, expiresAt] of idempotencyCache.entries()) {
+    if (expiresAt <= now) {
+      idempotencyCache.delete(key);
+    }
+  }
+}
+
+function isConditionalCheckFailure(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    (error as { name?: string }).name === 'ConditionalCheckFailedException'
+  );
+}
+
+export async function checkAndStoreIdempotencyKey(
+  idempotencyKey: string | undefined,
+  config: IdempotencyConfig
+): Promise<boolean> {
+  if (!idempotencyKey) {
+    return false;
+  }
+
+  const normalizedKey = idempotencyKey.trim();
+  if (!normalizedKey) {
+    return false;
+  }
+
+  const now = Date.now();
+  const expiresAtEpochMs = now + config.ttlMs;
+  const expiresAtEpochSec = Math.floor(expiresAtEpochMs / 1000);
+
+  if (!config.tableName) {
+    if (idempotencyCache.size > 1000 || now % 50 === 0) {
+      cleanupIdempotencyCache(now);
+    }
+
+    const existingExpiry = idempotencyCache.get(normalizedKey);
+    if (existingExpiry && existingExpiry > now) {
+      return true;
+    }
+
+    idempotencyCache.set(normalizedKey, expiresAtEpochMs);
+    return false;
+  }
+
+  try {
+    const dynamo = getDynamoClient(config.region);
+    await dynamo.send(
+      new PutItemCommand({
+        TableName: config.tableName,
+        Item: {
+          [config.partitionKeyName]: { S: normalizedKey },
+          expiresAt: { N: String(expiresAtEpochSec) },
+          createdAt: { N: String(Math.floor(now / 1000)) },
+        },
+        ConditionExpression: 'attribute_not_exists(#pk)',
+        ExpressionAttributeNames: {
+          '#pk': config.partitionKeyName,
+        },
+      })
+    );
+
+    return false;
+  } catch (error) {
+    if (isConditionalCheckFailure(error)) {
+      return true;
+    }
+
+    console.error('Idempotency store error:', error);
+    return !config.failOpen;
+  }
 }
 
 /**

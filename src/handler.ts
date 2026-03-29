@@ -4,6 +4,7 @@ import { ContactFormRequest, ContactFormResponse, ErrorResponse } from './types'
 import { validateContactForm } from './validation';
 import { ContactFormError, ValidationError, EmailServiceError } from './errors';
 import {
+  checkAndStoreIdempotencyKey,
   checkRateLimit,
   checkRateLimitDistributed,
   detectSuspiciousActivity,
@@ -21,6 +22,14 @@ const getEnvVars = () => ({
   RATE_LIMIT_TABLE: process.env.RATE_LIMIT_TABLE,
   RATE_LIMIT_PARTITION_KEY: process.env.RATE_LIMIT_PARTITION_KEY,
   RATE_LIMIT_FAIL_OPEN: process.env.RATE_LIMIT_FAIL_OPEN,
+  IDEMPOTENCY_TTL_MS: process.env.IDEMPOTENCY_TTL_MS,
+  IDEMPOTENCY_TABLE: process.env.IDEMPOTENCY_TABLE,
+  IDEMPOTENCY_PARTITION_KEY: process.env.IDEMPOTENCY_PARTITION_KEY,
+  IDEMPOTENCY_FAIL_OPEN: process.env.IDEMPOTENCY_FAIL_OPEN,
+  CAPTCHA_SECRET: process.env.CAPTCHA_SECRET,
+  CAPTCHA_VERIFY_URL: process.env.CAPTCHA_VERIFY_URL,
+  CAPTCHA_FAIL_OPEN: process.env.CAPTCHA_FAIL_OPEN,
+  CAPTCHA_TOKEN_HEADER: process.env.CAPTCHA_TOKEN_HEADER,
 });
 
 function parsePositiveInt(value: string | undefined, fallback: number, max: number): number {
@@ -37,6 +46,40 @@ function getRateLimitConfig(maxRequestsEnv: string | undefined, windowMsEnv: str
     maxRequests: parsePositiveInt(maxRequestsEnv, 5, 1000),
     windowMs: parsePositiveInt(windowMsEnv, 60000, 60 * 60 * 1000),
   };
+}
+
+function getHeaderValue(event: APIGatewayProxyEvent, headerName: string): string | undefined {
+  const target = headerName.toLowerCase();
+  const match = Object.entries(event.headers || {}).find(([key]) => key.toLowerCase() === target);
+  const value = match?.[1];
+
+  return typeof value === 'string' ? value : undefined;
+}
+
+async function verifyCaptcha(
+  token: string,
+  secret: string,
+  verifyUrl: string,
+  remoteIp?: string
+): Promise<boolean> {
+  const response = await fetch(verifyUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      secret,
+      response: token,
+      ...(remoteIp ? { remoteip: remoteIp } : {}),
+    }),
+  });
+
+  if (!response.ok) {
+    return false;
+  }
+
+  const payload = (await response.json()) as { success?: boolean };
+  return payload.success === true;
 }
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
@@ -258,6 +301,14 @@ export const send = async (
     RATE_LIMIT_TABLE,
     RATE_LIMIT_PARTITION_KEY,
     RATE_LIMIT_FAIL_OPEN,
+    IDEMPOTENCY_TTL_MS,
+    IDEMPOTENCY_TABLE,
+    IDEMPOTENCY_PARTITION_KEY,
+    IDEMPOTENCY_FAIL_OPEN,
+    CAPTCHA_SECRET,
+    CAPTCHA_VERIFY_URL,
+    CAPTCHA_FAIL_OPEN,
+    CAPTCHA_TOKEN_HEADER,
   } = getEnvVars();
   const origin = event.headers?.origin || event.headers?.Origin;
   const rateLimitConfig = getRateLimitConfig(RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_WINDOW_MS);
@@ -321,6 +372,54 @@ export const send = async (
     // Parse and validate request
     const contactRequest = parseRequestBody(event.body);
 
+    // Optional CAPTCHA verification for stronger bot protection.
+    if (CAPTCHA_SECRET) {
+      const tokenHeader = CAPTCHA_TOKEN_HEADER || 'x-captcha-token';
+      const captchaToken = getHeaderValue(event, tokenHeader);
+      if (!captchaToken) {
+        return generateErrorResponse(
+          400,
+          'Captcha required',
+          DOMAIN,
+          'Missing captcha token',
+          origin
+        );
+      }
+
+      const sourceIp = event.requestContext?.identity?.sourceIp;
+      const captchaVerifyUrl =
+        CAPTCHA_VERIFY_URL || 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+
+      try {
+        const captchaValid = await verifyCaptcha(
+          captchaToken,
+          CAPTCHA_SECRET,
+          captchaVerifyUrl,
+          sourceIp
+        );
+        if (!captchaValid) {
+          return generateErrorResponse(
+            403,
+            'Forbidden',
+            DOMAIN,
+            'Captcha verification failed',
+            origin
+          );
+        }
+      } catch (error) {
+        console.error('Captcha verification error:', error);
+        if (!parseBoolean(CAPTCHA_FAIL_OPEN, false)) {
+          return generateErrorResponse(
+            503,
+            'Service unavailable',
+            DOMAIN,
+            'Captcha verification unavailable',
+            origin
+          );
+        }
+      }
+    }
+
     // Honeypot: silently succeed if the hidden field is filled (bot trap)
     if (contactRequest._honeypot) {
       return generateResponse(
@@ -357,6 +456,31 @@ export const send = async (
       content: sanitizeInput(contactRequest.content),
       subject: contactRequest.subject ? sanitizeInput(contactRequest.subject) : undefined,
     };
+
+    // Optional idempotency prevents duplicate email sends on retries/double-submits.
+    const idempotencyKey =
+      getHeaderValue(event, 'idempotency-key') || getHeaderValue(event, 'x-idempotency-key');
+    const isDuplicateSubmission = await checkAndStoreIdempotencyKey(idempotencyKey, {
+      ttlMs: parsePositiveInt(IDEMPOTENCY_TTL_MS, 10 * 60 * 1000, 24 * 60 * 60 * 1000),
+      tableName: IDEMPOTENCY_TABLE,
+      region: AWS_REGION,
+      partitionKeyName: IDEMPOTENCY_PARTITION_KEY || 'id',
+      failOpen: parseBoolean(IDEMPOTENCY_FAIL_OPEN, true),
+    });
+    if (isDuplicateSubmission) {
+      return generateResponse(
+        200,
+        {
+          success: true,
+          message: 'Duplicate submission ignored.',
+        } as ContactFormResponse,
+        DOMAIN,
+        {
+          'Idempotency-Replayed': 'true',
+        },
+        origin
+      );
+    }
 
     // Create email parameters
     const emailParams = createEmailParams(sanitizedRequest, EMAIL);
