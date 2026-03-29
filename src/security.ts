@@ -1,13 +1,22 @@
 import { APIGatewayProxyEvent } from 'aws-lambda';
+import { DynamoDBClient, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 
 interface RateLimitConfig {
   maxRequests: number;
   windowMs: number;
 }
 
+interface DistributedRateLimitConfig extends RateLimitConfig {
+  tableName: string;
+  region: string;
+  partitionKeyName: string;
+  failOpen: boolean;
+}
+
 // Simple in-memory rate limiting (for demo purposes)
 // In production, use Redis or DynamoDB for distributed rate limiting
 const requestCounts = new Map<string, { count: number; windowStart: number }>();
+const dynamoClients = new Map<string, DynamoDBClient>();
 
 function getClientIp(event: APIGatewayProxyEvent): string {
   const forwardedFor = event.headers?.['x-forwarded-for'] || event.headers?.['X-Forwarded-For'];
@@ -37,6 +46,17 @@ function normalizeAllowedOrigins(allowedDomain: string): string[] {
     .split(',')
     .map(origin => origin.trim())
     .filter(Boolean);
+}
+
+function getDynamoClient(region: string): DynamoDBClient {
+  const existing = dynamoClients.get(region);
+  if (existing) {
+    return existing;
+  }
+
+  const client = new DynamoDBClient({ region });
+  dynamoClients.set(region, client);
+  return client;
 }
 
 /**
@@ -72,6 +92,53 @@ export function checkRateLimit(event: APIGatewayProxyEvent, config: RateLimitCon
 
   existing.count++;
   return true;
+}
+
+/**
+ * Distributed rate limiting backed by DynamoDB.
+ * Table requirements:
+ * - Partition key (string): default attribute name `id`
+ * - TTL attribute (number): `expiresAt` (optional but recommended)
+ */
+export async function checkRateLimitDistributed(
+  event: APIGatewayProxyEvent,
+  config: DistributedRateLimitConfig
+): Promise<boolean> {
+  const clientIp = getClientIp(event);
+  const now = Date.now();
+  const windowBucket = Math.floor(now / config.windowMs);
+  const key = `${clientIp}#${windowBucket}`;
+  const expiresAt = Math.floor(now / 1000) + Math.ceil((config.windowMs * 2) / 1000);
+
+  try {
+    const dynamo = getDynamoClient(config.region);
+    const result = await dynamo.send(
+      new UpdateItemCommand({
+        TableName: config.tableName,
+        Key: {
+          [config.partitionKeyName]: { S: key },
+        },
+        UpdateExpression:
+          'SET #count = if_not_exists(#count, :zero) + :inc, #expiresAt = :expiresAt',
+        ExpressionAttributeNames: {
+          '#count': 'count',
+          '#expiresAt': 'expiresAt',
+        },
+        ExpressionAttributeValues: {
+          ':zero': { N: '0' },
+          ':inc': { N: '1' },
+          ':expiresAt': { N: String(expiresAt) },
+        },
+        ReturnValues: 'ALL_NEW',
+      })
+    );
+
+    const currentCount = Number(result.Attributes?.count?.N ?? '0');
+    return currentCount <= config.maxRequests;
+  } catch (error) {
+    console.error('Distributed rate limit error:', error);
+    return config.failOpen;
+  }
 }
 
 /**

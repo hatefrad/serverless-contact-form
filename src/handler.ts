@@ -5,6 +5,7 @@ import { validateContactForm } from './validation';
 import { ContactFormError, ValidationError, EmailServiceError } from './errors';
 import {
   checkRateLimit,
+  checkRateLimitDistributed,
   detectSuspiciousActivity,
   validateOrigin,
   sanitizeInput,
@@ -17,6 +18,9 @@ const getEnvVars = () => ({
   AWS_REGION: process.env.AWS_REGION || 'us-east-1',
   RATE_LIMIT_MAX_REQUESTS: process.env.RATE_LIMIT_MAX_REQUESTS,
   RATE_LIMIT_WINDOW_MS: process.env.RATE_LIMIT_WINDOW_MS,
+  RATE_LIMIT_TABLE: process.env.RATE_LIMIT_TABLE,
+  RATE_LIMIT_PARTITION_KEY: process.env.RATE_LIMIT_PARTITION_KEY,
+  RATE_LIMIT_FAIL_OPEN: process.env.RATE_LIMIT_FAIL_OPEN,
 });
 
 function parsePositiveInt(value: string | undefined, fallback: number, max: number): number {
@@ -33,6 +37,14 @@ function getRateLimitConfig(maxRequestsEnv: string | undefined, windowMsEnv: str
     maxRequests: parsePositiveInt(maxRequestsEnv, 5, 1000),
     windowMs: parsePositiveInt(windowMsEnv, 60000, 60 * 60 * 1000),
   };
+}
+
+function parseBoolean(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  return value.toLowerCase() === 'true';
 }
 
 function getAllowedOrigins(domain: string): string[] {
@@ -237,7 +249,16 @@ export const send = async (
   context.callbackWaitsForEmptyEventLoop = false;
 
   // Get environment variables at runtime
-  const { EMAIL, DOMAIN, AWS_REGION, RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_WINDOW_MS } = getEnvVars();
+  const {
+    EMAIL,
+    DOMAIN,
+    AWS_REGION,
+    RATE_LIMIT_MAX_REQUESTS,
+    RATE_LIMIT_WINDOW_MS,
+    RATE_LIMIT_TABLE,
+    RATE_LIMIT_PARTITION_KEY,
+    RATE_LIMIT_FAIL_OPEN,
+  } = getEnvVars();
   const origin = event.headers?.origin || event.headers?.Origin;
   const rateLimitConfig = getRateLimitConfig(RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_WINDOW_MS);
 
@@ -273,7 +294,15 @@ export const send = async (
 
   try {
     // Rate limiting check
-    const rateLimitPassed = checkRateLimit(event, rateLimitConfig);
+    const rateLimitPassed = RATE_LIMIT_TABLE
+      ? await checkRateLimitDistributed(event, {
+          ...rateLimitConfig,
+          tableName: RATE_LIMIT_TABLE,
+          region: AWS_REGION,
+          partitionKeyName: RATE_LIMIT_PARTITION_KEY || 'id',
+          failOpen: parseBoolean(RATE_LIMIT_FAIL_OPEN, true),
+        })
+      : checkRateLimit(event, rateLimitConfig);
     if (!rateLimitPassed) {
       return generateErrorResponse(
         429,

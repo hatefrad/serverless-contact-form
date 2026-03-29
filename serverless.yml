@@ -31,6 +31,9 @@ provider:
     AWS_REGION: ${self:provider.region}
     RATE_LIMIT_MAX_REQUESTS: ${env:RATE_LIMIT_MAX_REQUESTS, self:custom.secrets.RATE_LIMIT_MAX_REQUESTS, '5'}
     RATE_LIMIT_WINDOW_MS: ${env:RATE_LIMIT_WINDOW_MS, self:custom.secrets.RATE_LIMIT_WINDOW_MS, '60000'}
+    RATE_LIMIT_TABLE: ${env:RATE_LIMIT_TABLE, self:custom.secrets.RATE_LIMIT_TABLE, ''}
+    RATE_LIMIT_PARTITION_KEY: ${env:RATE_LIMIT_PARTITION_KEY, self:custom.secrets.RATE_LIMIT_PARTITION_KEY, 'id'}
+    RATE_LIMIT_FAIL_OPEN: ${env:RATE_LIMIT_FAIL_OPEN, self:custom.secrets.RATE_LIMIT_FAIL_OPEN, 'true'}
   iam:
     role:
       statements:
@@ -43,6 +46,10 @@ provider:
           Action:
             - xray:PutTraceSegments
             - xray:PutTelemetryRecords
+          Resource: "*"
+        - Effect: Allow
+          Action:
+            - dynamodb:UpdateItem
           Resource: "*"
   logs:
     restApi: true

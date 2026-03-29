@@ -54,7 +54,10 @@ features, and error handling.
      "DOMAIN": "https://yourwebsite.com",
      "AWS_REGION": "us-east-1",
      "RATE_LIMIT_MAX_REQUESTS": "5",
-     "RATE_LIMIT_WINDOW_MS": "60000"
+     "RATE_LIMIT_WINDOW_MS": "60000",
+     "RATE_LIMIT_TABLE": "contact-form-rate-limit",
+     "RATE_LIMIT_PARTITION_KEY": "id",
+     "RATE_LIMIT_FAIL_OPEN": "true"
    }
    ```
 
@@ -225,6 +228,21 @@ Configure these in `secrets.json` or as environment variables:
 - `AWS_REGION`: AWS region for SES (default: `us-east-1`)
 - `RATE_LIMIT_MAX_REQUESTS`: Max requests per IP within a window (default: `5`)
 - `RATE_LIMIT_WINDOW_MS`: Rate-limit window in milliseconds (default: `60000`)
+- `RATE_LIMIT_TABLE`: Optional DynamoDB table name for distributed rate limiting
+- `RATE_LIMIT_PARTITION_KEY`: Partition key name for rate limit records
+  (default: `id`)
+- `RATE_LIMIT_FAIL_OPEN`: If `true`, allows requests when distributed limiter is
+  unavailable (default: `true`)
+
+#### Distributed Rate Limiting (Optional)
+
+If `RATE_LIMIT_TABLE` is set, rate limiting is handled in DynamoDB instead of
+in-memory.
+
+Recommended table setup:
+
+- Partition key: String (`id` by default)
+- TTL attribute: Number (`expiresAt`) enabled in DynamoDB TTL settings
 
 > **Note:** Environment variables are now read at runtime for better testability
 > and flexibility.

@@ -1,12 +1,21 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   checkRateLimit,
+  checkRateLimitDistributed,
   detectSuspiciousActivity,
   validateOrigin,
   sanitizeInput,
   cleanupRateLimit,
 } from '../src/security';
 import { APIGatewayProxyEvent } from 'aws-lambda';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+
+vi.mock('@aws-sdk/client-dynamodb', () => ({
+  DynamoDBClient: vi.fn(() => ({
+    send: vi.fn(),
+  })),
+  UpdateItemCommand: vi.fn(),
+}));
 
 // Mock APIGatewayProxyEvent for testing
 const createMockEvent = (sourceIp: string): Partial<APIGatewayProxyEvent> => ({
@@ -223,6 +232,92 @@ describe('Security Utilities', () => {
           resolve();
         }, 200);
       });
+    });
+  });
+
+  describe('checkRateLimitDistributed', () => {
+    it('should allow when distributed count is within limit', async () => {
+      const event = createMockEvent('192.168.1.20') as APIGatewayProxyEvent;
+      const mockDynamoClient = {
+        send: vi.fn().mockResolvedValue({
+          Attributes: {
+            count: { N: '3' },
+          },
+        }),
+      };
+
+      vi.mocked(DynamoDBClient).mockImplementation(
+        () => mockDynamoClient as unknown as DynamoDBClient
+      );
+
+      const allowed = await checkRateLimitDistributed(event, {
+        maxRequests: 5,
+        windowMs: 60000,
+        tableName: 'rate-limit-table',
+        region: 'us-east-1',
+        partitionKeyName: 'id',
+        failOpen: true,
+      });
+
+      expect(allowed).toBe(true);
+      expect(mockDynamoClient.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('should block when distributed count exceeds limit', async () => {
+      const event = createMockEvent('192.168.1.21') as APIGatewayProxyEvent;
+      const mockDynamoClient = {
+        send: vi.fn().mockResolvedValue({
+          Attributes: {
+            count: { N: '6' },
+          },
+        }),
+      };
+
+      vi.mocked(DynamoDBClient).mockImplementation(
+        () => mockDynamoClient as unknown as DynamoDBClient
+      );
+
+      const allowed = await checkRateLimitDistributed(event, {
+        maxRequests: 5,
+        windowMs: 60000,
+        tableName: 'rate-limit-table',
+        region: 'us-east-2',
+        partitionKeyName: 'id',
+        failOpen: true,
+      });
+
+      expect(allowed).toBe(false);
+    });
+
+    it('should honor failOpen when DynamoDB errors', async () => {
+      const event = createMockEvent('192.168.1.22') as APIGatewayProxyEvent;
+      const mockDynamoClient = {
+        send: vi.fn().mockRejectedValue(new Error('DynamoDB unavailable')),
+      };
+
+      vi.mocked(DynamoDBClient).mockImplementation(
+        () => mockDynamoClient as unknown as DynamoDBClient
+      );
+
+      const failOpenAllowed = await checkRateLimitDistributed(event, {
+        maxRequests: 5,
+        windowMs: 60000,
+        tableName: 'rate-limit-table',
+        region: 'us-east-3',
+        partitionKeyName: 'id',
+        failOpen: true,
+      });
+      const failClosedAllowed = await checkRateLimitDistributed(event, {
+        maxRequests: 5,
+        windowMs: 60000,
+        tableName: 'rate-limit-table',
+        region: 'us-west-1',
+        partitionKeyName: 'id',
+        failOpen: false,
+      });
+
+      expect(failOpenAllowed).toBe(true);
+      expect(failClosedAllowed).toBe(false);
     });
   });
 });
